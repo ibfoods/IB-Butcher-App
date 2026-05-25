@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { supabase } from "./supabase";
 
 const LOCS = [
@@ -14,6 +14,7 @@ const SCOLOR = { pending: { bg: "#fff8e1", txt: "#e65100" }, completed: { bg: "#
 
 const tod = () => new Date().toISOString().split("T")[0];
 const nowT = () => new Date().toTimeString().slice(0, 5);
+const inp = { width: "100%", boxSizing: "border-box", padding: "7px 10px", border: "1px solid #ddd", borderRadius: 7, fontSize: 13 };
 
 function printReceipt(o, items, locs) {
   const item = items.find(i => i.id === o.item_id);
@@ -42,6 +43,10 @@ function printReceipt(o, items, locs) {
   w.document.close();
 }
 
+function F({ label, children }) {
+  return <div style={{ marginBottom: 12 }}><p style={{ fontSize: 12, color: "#666", marginBottom: 4 }}>{label}</p>{children}</div>;
+}
+
 export default function App() {
   const [user, setUser] = useState(null);
   const [view, setView] = useState("login");
@@ -67,10 +72,10 @@ export default function App() {
     })();
   }, []);
 
-  const refreshOrders = async () => { const { data } = await supabase.from("orders").select("*"); setOrders(data || []); };
-  const refreshInv = async () => { const { data } = await supabase.from("inventory").select("*"); const m = {}; (data || []).forEach(r => { m[`${r.location_id}_${r.item_id}`] = r.stock; }); setInv(m); };
-  const refreshItems = async () => { const { data } = await supabase.from("items").select("*"); setItems(data || []); };
-  const refreshUsers = async () => { const { data } = await supabase.from("users").select("*"); setUsers(data || []); };
+  const refreshOrders = useCallback(async () => { const { data } = await supabase.from("orders").select("*"); setOrders(data || []); }, []);
+  const refreshInv = useCallback(async () => { const { data } = await supabase.from("inventory").select("*"); const m = {}; (data || []).forEach(r => { m[`${r.location_id}_${r.item_id}`] = r.stock; }); setInv(m); }, []);
+  const refreshItems = useCallback(async () => { const { data } = await supabase.from("items").select("*"); setItems(data || []); }, []);
+  const refreshUsers = useCallback(async () => { const { data } = await supabase.from("users").select("*"); setUsers(data || []); }, []);
 
   const can = (min) => { const h = ["clerk", "manager", "admin", "master_admin"]; return h.indexOf(user?.role) >= h.indexOf(min); };
   const logout = () => { setUser(null); setView("login"); };
@@ -95,10 +100,11 @@ export default function App() {
 }
 
 function Login({ users, onLogin }) {
-  const [f, setF] = useState({ username: "", password: "" });
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
   const [err, setErr] = useState("");
   const go = () => {
-    const u = users.find(u => u.username === f.username && u.password === f.password);
+    const u = users.find(u => u.username === username && u.password === password);
     if (!u) { setErr("Invalid username or password."); return; }
     onLogin(u);
   };
@@ -113,11 +119,11 @@ function Login({ users, onLogin }) {
         <div style={{ background: "#fff", border: "1px solid #e8e8e8", borderRadius: 10, padding: 20 }}>
           <div style={{ marginBottom: 10 }}>
             <p style={{ fontSize: 12, color: "#666", marginBottom: 4 }}>Username</p>
-            <input value={f.username} onChange={e => setF(x => ({ ...x, username: e.target.value }))} onKeyDown={e => e.key === "Enter" && go()} placeholder="Username" style={{ width: "100%", boxSizing: "border-box", padding: "7px 10px", border: "1px solid #ddd", borderRadius: 7, fontSize: 13 }} />
+            <input value={username} onChange={e => setUsername(e.target.value)} onKeyDown={e => e.key === "Enter" && go()} placeholder="Username" style={inp} />
           </div>
           <div style={{ marginBottom: 14 }}>
             <p style={{ fontSize: 12, color: "#666", marginBottom: 4 }}>Password</p>
-            <input type="password" value={f.password} onChange={e => setF(x => ({ ...x, password: e.target.value }))} onKeyDown={e => e.key === "Enter" && go()} placeholder="Password" style={{ width: "100%", boxSizing: "border-box", padding: "7px 10px", border: "1px solid #ddd", borderRadius: 7, fontSize: 13 }} />
+            <input type="password" value={password} onChange={e => setPassword(e.target.value)} onKeyDown={e => e.key === "Enter" && go()} placeholder="Password" style={inp} />
           </div>
           {err && <p style={{ color: "#c62828", fontSize: 12, marginBottom: 10 }}>{err}</p>}
           <button onClick={go} style={{ width: "100%", background: "#8B1A2B", color: "#fff", border: "none", borderRadius: 8, padding: 10, fontSize: 14, fontWeight: 500, cursor: "pointer" }}>Sign in</button>
@@ -248,28 +254,56 @@ function Orders({ user, orders, refresh, inv, refreshInv, items, can }) {
 
 function NewOrder({ user, orders, refresh, inv, refreshInv, items, setView }) {
   const locs = user.location_id ? LOCS.filter(l => l.id === user.location_id) : LOCS;
-  const [f, setF] = useState({ location_id: user.location_id || locs[0]?.id || "", customer_name: "", customer_phone: "", item_id: items[0]?.id || "", order_date: tod(), order_time: nowT(), pickup_date: "", pickup_time: "12:00", notes: "" });
+  const [locationId, setLocationId] = useState(user.location_id || locs[0]?.id || "");
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
+  const [phone, setPhone] = useState("");
+  const [itemId, setItemId] = useState(items[0]?.id || "");
+  const [orderDate, setOrderDate] = useState(tod());
+  const [orderTime, setOrderTime] = useState(nowT());
+  const [pickupDate, setPickupDate] = useState("");
+  const [pickupTime, setPickupTime] = useState("12:00");
+  const [notes, setNotes] = useState("");
   const [err, setErr] = useState("");
   const [done, setDone] = useState(false);
 
-  const k = `${f.location_id}_${f.item_id}`;
+  const k = `${locationId}_${itemId}`;
   const stock = inv[k] ?? null;
 
   const submit = async () => {
-    if (!f.customer_name.trim()) { setErr("Customer name required."); return; }
-    if (!f.customer_phone.trim()) { setErr("Phone required."); return; }
-    if (!f.pickup_date) { setErr("Pickup date required."); return; }
+    if (!firstName.trim()) { setErr("First name required."); return; }
+    if (!lastName.trim()) { setErr("Last name required."); return; }
+    if (!phone.trim()) { setErr("Phone required."); return; }
+    if (!pickupDate) { setErr("Pickup date required."); return; }
     if (stock !== null && stock <= 0) { setErr("Out of stock at this location."); return; }
 
     const { data: allOrders } = await supabase.from("orders").select("invoice_number, daily_number, location_id, order_date");
-    const invoiceNumber = allOrders.reduce((m, o) => Math.max(m, o.invoice_number || 0), 0) + 1;
-    const dailyNumber = allOrders.filter(o => o.location_id === f.location_id && o.order_date === f.order_date).length + 1;
+    const invoiceNumber = (allOrders || []).reduce((m, o) => Math.max(m, o.invoice_number || 0), 0) + 1;
+    const dailyNumber = (allOrders || []).filter(o => o.location_id === locationId && o.order_date === orderDate).length + 1;
+    const customerName = `${firstName.trim()} ${lastName.trim()}`;
 
-    const newOrder = { ...f, id: `ord_${Date.now()}`, invoice_number: invoiceNumber, daily_number: dailyNumber, status: "pending", taken_by: user.name, created_at: new Date().toISOString() };
+    const newOrder = {
+      id: `ord_${Date.now()}`,
+      location_id: locationId,
+      customer_name: customerName,
+      customer_phone: phone,
+      item_id: itemId,
+      order_date: orderDate,
+      order_time: orderTime,
+      pickup_date: pickupDate,
+      pickup_time: pickupTime,
+      notes,
+      invoice_number: invoiceNumber,
+      daily_number: dailyNumber,
+      status: "pending",
+      taken_by: user.name,
+      created_at: new Date().toISOString()
+    };
+
     await supabase.from("orders").insert(newOrder);
 
     if (stock !== null) {
-      const { data: existing } = await supabase.from("inventory").select("*").eq("location_id", f.location_id).eq("item_id", f.item_id).single();
+      const { data: existing } = await supabase.from("inventory").select("*").eq("location_id", locationId).eq("item_id", itemId).single();
       if (existing) await supabase.from("inventory").update({ stock: stock - 1 }).eq("id", existing.id);
       await refreshInv();
     }
@@ -281,28 +315,28 @@ function NewOrder({ user, orders, refresh, inv, refreshInv, items, setView }) {
 
   if (done) return <div style={{ textAlign: "center", padding: "3rem" }}><p style={{ fontSize: 32 }}>✓</p><p style={{ fontWeight: 500, marginTop: 8 }}>Order placed!</p><p style={{ color: "#888" }}>Opening print dialog...</p></div>;
 
-  const F = ({ label, children }) => <div style={{ marginBottom: 12 }}><p style={{ fontSize: 12, color: "#666", marginBottom: 4 }}>{label}</p>{children}</div>;
-  const inp = { width: "100%", boxSizing: "border-box", padding: "7px 10px", border: "1px solid #ddd", borderRadius: 7, fontSize: 13 };
-
   return (
     <div style={{ maxWidth: 500 }}>
       <p style={{ fontSize: 15, fontWeight: 500, marginBottom: "1rem" }}>New order</p>
-      {!user.location_id && <F label="Location"><select value={f.location_id} onChange={e => setF(x => ({ ...x, location_id: e.target.value }))} style={inp}>{LOCS.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}</select></F>}
-      <F label="Customer name"><input value={f.customer_name} onChange={e => setF(x => ({ ...x, customer_name: e.target.value }))} placeholder="Full name" style={inp} /></F>
-      <F label="Phone number"><input value={f.customer_phone} onChange={e => setF(x => ({ ...x, customer_phone: e.target.value }))} placeholder="(xxx) xxx-xxxx" style={inp} /></F>
+      {!user.location_id && <F label="Location"><select value={locationId} onChange={e => setLocationId(e.target.value)} style={inp}>{LOCS.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}</select></F>}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+        <F label="First name"><input value={firstName} onChange={e => setFirstName(e.target.value)} placeholder="First name" style={inp} /></F>
+        <F label="Last name"><input value={lastName} onChange={e => setLastName(e.target.value)} placeholder="Last name" style={inp} /></F>
+      </div>
+      <F label="Phone number"><input value={phone} onChange={e => setPhone(e.target.value)} placeholder="(xxx) xxx-xxxx" style={inp} /></F>
       <F label="Item">
-        <select value={f.item_id} onChange={e => setF(x => ({ ...x, item_id: e.target.value }))} style={inp}>
+        <select value={itemId} onChange={e => setItemId(e.target.value)} style={inp}>
           {items.filter(i => i.active !== false).map(i => <option key={i.id} value={i.id}>{i.name}</option>)}
         </select>
         {stock !== null && <p style={{ fontSize: 11, marginTop: 3, color: stock <= 0 ? "#c62828" : stock <= 5 ? "#e65100" : "#2e7d32" }}>{stock <= 0 ? "⚠ Out of stock" : stock <= 5 ? `⚠ Low stock (${stock} left)` : `${stock} in stock`}</p>}
       </F>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-        <F label="Order date"><input type="date" value={f.order_date} onChange={e => setF(x => ({ ...x, order_date: e.target.value }))} style={inp} /></F>
-        <F label="Order time"><input type="time" value={f.order_time} onChange={e => setF(x => ({ ...x, order_time: e.target.value }))} style={inp} /></F>
-        <F label="Pickup date"><input type="date" value={f.pickup_date} onChange={e => setF(x => ({ ...x, pickup_date: e.target.value }))} style={inp} /></F>
-        <F label="Pickup time"><input type="time" value={f.pickup_time} onChange={e => setF(x => ({ ...x, pickup_time: e.target.value }))} style={inp} /></F>
+        <F label="Order date"><input type="date" value={orderDate} onChange={e => setOrderDate(e.target.value)} style={inp} /></F>
+        <F label="Order time"><input type="time" value={orderTime} onChange={e => setOrderTime(e.target.value)} style={inp} /></F>
+        <F label="Pickup date"><input type="date" value={pickupDate} onChange={e => setPickupDate(e.target.value)} style={inp} /></F>
+        <F label="Pickup time"><input type="time" value={pickupTime} onChange={e => setPickupTime(e.target.value)} style={inp} /></F>
       </div>
-      <F label="Notes (optional)"><textarea value={f.notes} onChange={e => setF(x => ({ ...x, notes: e.target.value }))} style={{ ...inp, height: 58, resize: "vertical" }} placeholder="Special instructions..." /></F>
+      <F label="Notes (optional)"><textarea value={notes} onChange={e => setNotes(e.target.value)} style={{ ...inp, height: 58, resize: "vertical" }} placeholder="Special instructions..." /></F>
       {err && <p style={{ color: "#c62828", fontSize: 12, marginBottom: 10 }}>{err}</p>}
       <button onClick={submit} style={{ width: "100%", background: "#8B1A2B", color: "#fff", border: "none", borderRadius: 8, padding: 11, fontSize: 14, fontWeight: 500, cursor: "pointer" }}>Place order & print receipt</button>
     </div>
@@ -314,7 +348,6 @@ function Reports({ orders, items, user }) {
   const [from, setFrom] = useState(tod());
   const [to, setTo] = useState(tod());
   const [loc, setLoc] = useState(user.location_id || "");
-  const inp = { padding: "7px 10px", border: "1px solid #ddd", borderRadius: 7, fontSize: 13 };
 
   const fil = orders.filter(o => {
     if (loc && o.location_id !== loc) return false;
@@ -345,15 +378,15 @@ function Reports({ orders, items, user }) {
   return (
     <div>
       <div style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap", alignItems: "center" }}>
-        <select value={type} onChange={e => setType(e.target.value)} style={{ ...inp, minWidth: 130 }}>
+        <select value={type} onChange={e => setType(e.target.value)} style={{ ...inp, minWidth: 130, width: "auto" }}>
           <option value="popularity">Popularity</option>
           <option value="production">Production</option>
         </select>
-        {!user.location_id && <select value={loc} onChange={e => setLoc(e.target.value)} style={{ ...inp, minWidth: 130 }}><option value="">All locations</option>{LOCS.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}</select>}
-        <input type="date" value={from} onChange={e => setFrom(e.target.value)} style={{ ...inp, minWidth: 130 }} />
+        {!user.location_id && <select value={loc} onChange={e => setLoc(e.target.value)} style={{ ...inp, minWidth: 130, width: "auto" }}><option value="">All locations</option>{LOCS.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}</select>}
+        <input type="date" value={from} onChange={e => setFrom(e.target.value)} style={{ ...inp, minWidth: 130, width: "auto" }} />
         <span style={{ color: "#888", fontSize: 12 }}>to</span>
-        <input type="date" value={to} onChange={e => setTo(e.target.value)} style={{ ...inp, minWidth: 130 }} />
-        {type === "production" && <button onClick={printProd} style={{ ...inp, background: "#fff", cursor: "pointer" }}>Print</button>}
+        <input type="date" value={to} onChange={e => setTo(e.target.value)} style={{ ...inp, minWidth: 130, width: "auto" }} />
+        {type === "production" && <button onClick={printProd} style={{ ...inp, width: "auto", background: "#fff", cursor: "pointer" }}>Print</button>}
       </div>
       {type === "popularity" && <div>
         <p style={{ color: "#888", fontSize: 12, marginBottom: 10 }}>{fil.length} orders · pickup {from === to ? from : `${from} – ${to}`}</p>
@@ -394,10 +427,9 @@ function Reports({ orders, items, user }) {
 
 function Inventory({ inv, refreshInv, items, user }) {
   const locs = user.location_id ? LOCS.filter(l => l.id === user.location_id) : LOCS;
-  const inp = { width: 50, textAlign: "center", padding: "5px", border: "1px solid #ddd", borderRadius: 7, fontSize: 13 };
   const set = async (lid, iid, val) => {
     const stock = Math.max(0, parseInt(val) || 0);
-    const { data: existing } = await supabase.from("inventory").select("*").eq("location_id", lid).eq("item_id", iid).single().catch(() => ({ data: null }));
+    const { data: existing } = await supabase.from("inventory").select("*").eq("location_id", lid).eq("item_id", iid).maybeSingle();
     if (existing) await supabase.from("inventory").update({ stock }).eq("id", existing.id);
     else await supabase.from("inventory").insert({ location_id: lid, item_id: iid, stock });
     await refreshInv();
@@ -413,7 +445,7 @@ function Inventory({ inv, refreshInv, items, user }) {
             <span style={{ fontSize: 12, flex: 1 }}>{item.name}</span>
             <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
               <button onClick={() => set(loc.id, item.id, stock - 1)} style={{ width: 26, height: 26, borderRadius: "50%", background: "none", border: "1px solid #ddd", fontSize: 16, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>−</button>
-              <input type="number" defaultValue={stock} key={`${loc.id}_${item.id}_${stock}`} min={0} onBlur={e => set(loc.id, item.id, e.target.value)} style={inp} />
+              <input type="number" defaultValue={stock} key={`${loc.id}_${item.id}_${stock}`} min={0} onBlur={e => set(loc.id, item.id, e.target.value)} style={{ width: 50, textAlign: "center", padding: "5px", border: "1px solid #ddd", borderRadius: 7, fontSize: 13 }} />
               <button onClick={() => set(loc.id, item.id, stock + 1)} style={{ width: 26, height: 26, borderRadius: "50%", background: "none", border: "1px solid #ddd", fontSize: 16, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>+</button>
               <span style={{ fontSize: 11, minWidth: 60, color: stock <= 0 ? "#c62828" : stock <= 5 ? "#e65100" : "#2e7d32" }}>{stock <= 0 ? "Out of stock" : stock <= 5 ? `Low (${stock})` : `${stock} units`}</span>
             </div>
@@ -426,18 +458,21 @@ function Inventory({ inv, refreshInv, items, user }) {
 
 function Admin({ users, refreshUsers, items, refreshItems, user, can }) {
   const [tab, setTab] = useState("users");
-  const [nu, setNu] = useState({ name: "", username: "", password: "", role: "clerk", location_id: "" });
+  const [name, setName] = useState("");
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
+  const [role, setRole] = useState("clerk");
+  const [locationId, setLocationId] = useState("");
   const [ni, setNi] = useState("");
   const [ue, setUe] = useState("");
   const [ie, setIe] = useState("");
-  const inp = { width: "100%", boxSizing: "border-box", padding: "7px 10px", border: "1px solid #ddd", borderRadius: 7, fontSize: 13 };
 
   const addU = async () => {
-    if (!nu.name || !nu.username || !nu.password) { setUe("All fields required."); return; }
-    if (users.find(u => u.username === nu.username)) { setUe("Username taken."); return; }
-    await supabase.from("users").insert({ ...nu, location_id: nu.location_id || null });
+    if (!name || !username || !password) { setUe("All fields required."); return; }
+    if (users.find(u => u.username === username)) { setUe("Username taken."); return; }
+    await supabase.from("users").insert({ name, username, password, role, location_id: locationId || null });
     await refreshUsers();
-    setNu({ name: "", username: "", password: "", role: "clerk", location_id: "" }); setUe("");
+    setName(""); setUsername(""); setPassword(""); setRole("clerk"); setLocationId(""); setUe("");
   };
   const remU = async id => {
     if (id === user.id) return;
@@ -465,16 +500,16 @@ function Admin({ users, refreshUsers, items, refreshItems, user, can }) {
         <div style={{ background: "#fff", border: "1px solid #e8e8e8", borderRadius: 10, padding: "1rem", marginBottom: "1rem" }}>
           <p style={{ fontSize: 13, fontWeight: 500, marginBottom: 10 }}>Add user</p>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 8 }}>
-            <input value={nu.name} onChange={e => setNu(f => ({ ...f, name: e.target.value }))} placeholder="Full name" style={inp} />
-            <input value={nu.username} onChange={e => setNu(f => ({ ...f, username: e.target.value }))} placeholder="Username" style={inp} />
-            <input type="password" value={nu.password} onChange={e => setNu(f => ({ ...f, password: e.target.value }))} placeholder="Password" style={inp} />
-            <select value={nu.role} onChange={e => setNu(f => ({ ...f, role: e.target.value }))} style={inp}>
+            <input value={name} onChange={e => setName(e.target.value)} placeholder="Full name" style={inp} />
+            <input value={username} onChange={e => setUsername(e.target.value)} placeholder="Username" style={inp} />
+            <input type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="Password" style={inp} />
+            <select value={role} onChange={e => setRole(e.target.value)} style={inp}>
               <option value="clerk">Clerk</option>
               <option value="manager">Manager</option>
               <option value="admin">Admin</option>
               {can("master_admin") && <option value="master_admin">Master Admin</option>}
             </select>
-            <select value={nu.location_id} onChange={e => setNu(f => ({ ...f, location_id: e.target.value }))} style={inp}>
+            <select value={locationId} onChange={e => setLocationId(e.target.value)} style={inp}>
               <option value="">All locations</option>
               {LOCS.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
             </select>
