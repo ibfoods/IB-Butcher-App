@@ -16,7 +16,7 @@ const tod = () => new Date().toISOString().split("T")[0];
 const nowT = () => new Date().toTimeString().slice(0, 5);
 const inp = { width: "100%", boxSizing: "border-box", padding: "7px 10px", border: "1px solid #ddd", borderRadius: 7, fontSize: 13 };
 
-const LOGO_URL = "/logo.png";
+const LOGO_URL = "/logo.jpg";
 
 function formatPhone(val) {
   const digits = val.replace(/\D/g, "").slice(0, 10);
