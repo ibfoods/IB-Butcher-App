@@ -307,11 +307,13 @@ function NewOrder({ user, orders, refresh, inv, refreshInv, items, setView }) {
     const orderDate = tod();
     const orderTime = nowT();
 
-    const { data: allOrders } = await supabase.from("orders").select("invoice_number, daily_number, location_id, order_date");
-    const maxInvoice = (allOrders || []).reduce((m, o) => Math.max(m, o.invoice_number || 0), 999);
-    const invoiceNumber = maxInvoice + 1;
-    const dailyNumber = (allOrders || []).filter(o => o.location_id === locationId && o.order_date === orderDate && o.status !== "cancelled").length + 1;
-    const customerName = `${firstName.trim()} ${lastName.trim()}`;
+    const { data: allOrders } = await supabase.from("orders").select("invoice_number, daily_number, location_id, order_date, status");
+const { data: todayOrders } = await supabase.from("orders").select("id").eq("location_id", locationId).eq("order_date", orderDate).neq("status", "cancelled");
+const maxInvoice = (allOrders || []).reduce((m, o) => Math.max(m, o.invoice_number || 0), 999);
+const invoiceNumber = maxInvoice + 1;
+const dailyNumber = (todayOrders || []).length + 1;
+const customerName = `${firstName.trim()} ${lastName.trim()}`;
+
 
     const newOrder = {
       id: `ord_${Date.now()}`,
