@@ -15,8 +15,29 @@ const SCOLOR = { pending: { bg: "#fff8e1", txt: "#e65100" }, completed: { bg: "#
 const tod = () => new Date().toISOString().split("T")[0];
 const nowT = () => new Date().toTimeString().slice(0, 5);
 const inp = { width: "100%", boxSizing: "border-box", padding: "7px 10px", border: "1px solid #ddd", borderRadius: 7, fontSize: 13 };
-
 const LOGO_URL = "/logo.jpg";
+
+function fmtDate(d) {
+  if (!d) return "";
+  const [y, m, day] = d.split("-");
+  return `${m}/${day}/${y.slice(2)}`;
+}
+
+function fmtTime(t) {
+  if (!t) return "";
+  const [h, m] = t.split(":");
+  const hour = parseInt(h);
+  const ampm = hour >= 12 ? "PM" : "AM";
+  const h12 = hour % 12 || 12;
+  return `${h12}:${m} ${ampm}`;
+}
+
+function takenByInitials(name) {
+  if (!name) return "";
+  const parts = name.trim().split(" ");
+  if (parts.length === 1) return parts[0];
+  return `${parts[0]} ${parts[parts.length - 1][0]}.`;
+}
 
 function formatPhone(val) {
   const digits = val.replace(/\D/g, "").slice(0, 10);
@@ -29,6 +50,7 @@ function printReceipt(o, items, locs) {
   const item = items.find(i => i.id === o.item_id);
   const loc = locs.find(l => l.id === o.location_id);
   const logoUrl = window.location.origin + LOGO_URL;
+  const takenBy = takenByInitials(o.taken_by);
   const html = `<!DOCTYPE html><html><head><title>Order #${o.invoice_number}</title><style>
     body{font-family:Arial,sans-serif;font-size:12px;padding:20px;max-width:300px;margin:0 auto}
     h2{font-size:17px;text-align:center;letter-spacing:1px;margin:0 0 3px}
@@ -37,24 +59,23 @@ function printReceipt(o, items, locs) {
     .big{font-size:40px;font-weight:bold;text-align:center;margin:4px 0;color:#8B1A2B}
     .lbl{font-size:9px;text-transform:uppercase;letter-spacing:1px;color:#999;margin:8px 0 2px}
     .val{font-size:13px;font-weight:bold}
-    .logo{display:block;margin:0 auto 8px;width:60px;height:60px;object-fit:contain}
+    .logo{display:block;margin:0 auto 8px;width:70px;height:70px;object-fit:contain}
   </style></head><body>
     <img src="${logoUrl}" class="logo" />
     <h2>IAVARONE BROS.</h2>
     <p class="s">${loc?.address}<br>${loc?.city}<br>${loc?.phone}</p>
     <div class="d"></div>
     <p class="lbl">Daily order #</p><p class="big">${o.daily_number}</p>
-    <p class="lbl">Invoice</p><p class="val">#${o.invoice_number}</p>
     <div class="d"></div>
-    <p class="lbl">Customer</p><p class="val">${o.customer_name}</p><p>${o.customer_phone}</p>
+    <p class="lbl">Customer</p><p class="val">${o.customer_name}</p>
+    <p class="lbl">Phone</p><p>${o.customer_phone}</p>
+    <p class="lbl">Pickup</p><p class="val">${fmtDate(o.pickup_date)} at ${fmtTime(o.pickup_time)}</p>
+    <p class="lbl">Invoice</p><p>#${o.invoice_number}</p>
     <div class="d"></div>
     <p class="lbl">Item</p><p class="val">${item?.name || ""}</p>
-    <div class="d"></div>
-    <p class="lbl">Order placed</p><p>${o.order_date} at ${o.order_time}</p>
-    <p class="lbl">Pickup</p><p class="val">${o.pickup_date} at ${o.pickup_time}</p>
     ${o.notes ? `<div class="d"></div><p class="lbl">Notes</p><p>${o.notes}</p>` : ""}
     <div class="d"></div>
-    <p class="c s">Taken by ${o.taken_by}</p>
+    <p class="c s">Taken by ${takenBy}</p>
     <script>
       window.onload = function() {
         var img = document.querySelector('img');
@@ -63,7 +84,6 @@ function printReceipt(o, items, locs) {
       };
     <\/script>
   </body></html>`;
-
   const w = window.open("", "_blank");
   if (!w) { alert("Please allow popups to print."); return; }
   w.document.write(html);
@@ -195,9 +215,11 @@ function Orders({ user, orders, refresh, inv, refreshInv, items, can }) {
   const [search, setSearch] = useState("");
   const [lf, setLf] = useState(user.location_id || "");
   const [df, setDf] = useState("");
+  const [showCancelled, setShowCancelled] = useState(false);
   const [detail, setDetail] = useState(null);
 
   const filtered = orders.filter(o => {
+    if (!showCancelled && o.status === "cancelled") return false;
     if (lf && o.location_id !== lf) return false;
     if (df && o.pickup_date !== df) return false;
     if (search && !o.customer_name.toLowerCase().includes(search.toLowerCase()) && !String(o.invoice_number).includes(search)) return false;
@@ -232,7 +254,19 @@ function Orders({ user, orders, refresh, inv, refreshInv, items, can }) {
             </div>
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
               <tbody>
-                {[["Customer", detail.customer_name], ["Phone", detail.customer_phone], ["Item", items.find(i => i.id === detail.item_id)?.name], ["Location", LOCS.find(l => l.id === detail.location_id)?.name], ["Order date", `${detail.order_date} at ${detail.order_time}`], ["Pickup", `${detail.pickup_date} at ${detail.pickup_time}`], ["Daily #", `#${detail.daily_number}`], ["Invoice", `#${detail.invoice_number}`], ["Taken by", detail.taken_by], ["Status", detail.status], ...(detail.notes ? [["Notes", detail.notes]] : [])].map(([k, v]) => (
+                {[
+                  ["Customer", detail.customer_name],
+                  ["Phone", detail.customer_phone],
+                  ["Pickup", `${fmtDate(detail.pickup_date)} at ${fmtTime(detail.pickup_time)}`],
+                  ["Invoice", `#${detail.invoice_number}`],
+                  ["Item", items.find(i => i.id === detail.item_id)?.name],
+                  ["Location", LOCS.find(l => l.id === detail.location_id)?.name],
+                  ["Order placed", `${fmtDate(detail.order_date)} at ${fmtTime(detail.order_time)}`],
+                  ["Daily #", `#${detail.daily_number}`],
+                  ["Taken by", detail.taken_by],
+                  ["Status", detail.status],
+                  ...(detail.notes ? [["Notes", detail.notes]] : [])
+                ].map(([k, v]) => (
                   <tr key={k}><td style={{ color: "#888", width: "35%", fontSize: 12, padding: "5px 0" }}>{k}</td><td style={{ padding: "5px 0" }}>{v}</td></tr>
                 ))}
               </tbody>
@@ -241,10 +275,14 @@ function Orders({ user, orders, refresh, inv, refreshInv, items, can }) {
           </div>
         </div>
       )}
-      <div style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap" }}>
+      <div style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap", alignItems: "center" }}>
         <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search name or invoice #" style={{ flex: 1, minWidth: 140, padding: "7px 10px", border: "1px solid #ddd", borderRadius: 7, fontSize: 13 }} />
         {!user.location_id && <select value={lf} onChange={e => setLf(e.target.value)} style={{ minWidth: 130, padding: "7px 10px", border: "1px solid #ddd", borderRadius: 7, fontSize: 13 }}><option value="">All locations</option>{LOCS.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}</select>}
         <input type="date" value={df} onChange={e => setDf(e.target.value)} style={{ minWidth: 130, padding: "7px 10px", border: "1px solid #ddd", borderRadius: 7, fontSize: 13 }} />
+        <label style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12, color: "#888", cursor: "pointer", whiteSpace: "nowrap" }}>
+          <input type="checkbox" checked={showCancelled} onChange={e => setShowCancelled(e.target.checked)} />
+          Show cancelled
+        </label>
       </div>
       {filtered.length === 0 ? <p style={{ color: "#888", textAlign: "center", padding: "2rem" }}>No orders found.</p> :
         filtered.map(o => {
@@ -252,7 +290,7 @@ function Orders({ user, orders, refresh, inv, refreshInv, items, can }) {
           const loc = LOCS.find(l => l.id === o.location_id);
           const sc = SCOLOR[o.status] || { bg: "#eee", txt: "#666" };
           return (
-            <div key={o.id} onClick={() => setDetail(o)} style={{ background: "#fff", border: "1px solid #e8e8e8", borderRadius: 10, padding: "10px 14px", marginBottom: 6, cursor: "pointer", display: "flex", alignItems: "center", gap: 12 }}>
+            <div key={o.id} onClick={() => setDetail(o)} style={{ background: "#fff", border: "1px solid #e8e8e8", borderRadius: 10, padding: "10px 14px", marginBottom: 6, cursor: "pointer", display: "flex", alignItems: "center", gap: 12, opacity: o.status === "cancelled" ? 0.6 : 1 }}>
               <div style={{ textAlign: "center", minWidth: 40 }}>
                 <p style={{ fontSize: 20, fontWeight: 700, color: "#8B1A2B", lineHeight: 1, margin: 0 }}>#{o.daily_number}</p>
                 <p style={{ fontSize: 9, color: "#aaa", margin: 0 }}>#{o.invoice_number}</p>
@@ -260,7 +298,7 @@ function Orders({ user, orders, refresh, inv, refreshInv, items, can }) {
               <div style={{ flex: 1, minWidth: 0 }}>
                 <p style={{ fontWeight: 500, fontSize: 13, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", margin: 0 }}>{o.customer_name}</p>
                 <p style={{ fontSize: 12, color: "#888", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", margin: 0 }}>{item?.name}</p>
-                <p style={{ fontSize: 12, color: "#888", margin: 0 }}>Pickup: {o.pickup_date} {o.pickup_time} · {loc?.name}</p>
+                <p style={{ fontSize: 12, color: "#888", margin: 0 }}>Pickup: {fmtDate(o.pickup_date)} {fmtTime(o.pickup_time)} · {loc?.name}</p>
               </div>
               <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 5 }}>
                 <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 5, background: sc.bg, color: sc.txt, fontWeight: 500 }}>{o.status}</span>
@@ -307,13 +345,12 @@ function NewOrder({ user, orders, refresh, inv, refreshInv, items, setView }) {
     const orderDate = tod();
     const orderTime = nowT();
 
-    const { data: allOrders } = await supabase.from("orders").select("invoice_number, daily_number, location_id, order_date, status");
-const { data: todayOrders } = await supabase.from("orders").select("id").eq("location_id", locationId).eq("order_date", orderDate).neq("status", "cancelled");
-const maxInvoice = (allOrders || []).reduce((m, o) => Math.max(m, o.invoice_number || 0), 999);
-const invoiceNumber = maxInvoice + 1;
-const dailyNumber = (todayOrders || []).length + 1;
-const customerName = `${firstName.trim()} ${lastName.trim()}`;
-
+    const { data: allOrders } = await supabase.from("orders").select("invoice_number, location_id, pickup_date, status");
+    const { data: pickupOrders } = await supabase.from("orders").select("id").eq("location_id", locationId).eq("pickup_date", pickupDate).neq("status", "cancelled");
+    const maxInvoice = (allOrders || []).reduce((m, o) => Math.max(m, o.invoice_number || 0), 999);
+    const invoiceNumber = maxInvoice + 1;
+    const dailyNumber = (pickupOrders || []).length + 1;
+    const customerName = `${firstName.trim()} ${lastName.trim()}`;
 
     const newOrder = {
       id: `ord_${Date.now()}`,
@@ -403,14 +440,14 @@ function Reports({ orders, items, user }) {
     </style></head><body>
       <img src="${logoUrl}" class="logo" />
       <h2>Production Report — Iavarone Bros.</h2>
-      <p class="sub">Pickup: ${from === to ? from : `${from} to ${to}`} · ${ln}</p>
+      <p class="sub">Pickup: ${fmtDate(from) === fmtDate(to) ? fmtDate(from) : `${fmtDate(from)} to ${fmtDate(to)}`} · ${ln}</p>
       <table><thead><tr>
         <th>#</th><th>Invoice</th><th>Location</th><th>Customer</th><th>Phone</th><th>Item</th><th>Pickup time</th><th>Notes</th>
       </tr></thead><tbody>
         ${prod.map(o => {
           const it = items.find(i => i.id === o.item_id);
           const l = LOCS.find(l => l.id === o.location_id);
-          return `<tr><td>${o.daily_number}</td><td>#${o.invoice_number}</td><td>${l?.name||""}</td><td>${o.customer_name}</td><td>${o.customer_phone}</td><td>${it?.name||""}</td><td>${o.pickup_time}</td><td>${o.notes||""}</td></tr>`;
+          return `<tr><td>${o.daily_number}</td><td>#${o.invoice_number}</td><td>${l?.name||""}</td><td>${o.customer_name}</td><td>${o.customer_phone}</td><td>${it?.name||""}</td><td>${fmtTime(o.pickup_time)}</td><td>${o.notes||""}</td></tr>`;
         }).join("")}
       </tbody></table>
       <script>window.onload=function(){window.print();}<\/script>
@@ -435,7 +472,7 @@ function Reports({ orders, items, user }) {
         {type === "production" && <button onClick={printProd} style={{ ...inp, width: "auto", background: "#fff", cursor: "pointer" }}>Print</button>}
       </div>
       {type === "popularity" && <div>
-        <p style={{ color: "#888", fontSize: 12, marginBottom: 10 }}>{fil.length} orders · pickup {from === to ? from : `${from} – ${to}`}</p>
+        <p style={{ color: "#888", fontSize: 12, marginBottom: 10 }}>{fil.length} orders · pickup {fmtDate(from) === fmtDate(to) ? fmtDate(from) : `${fmtDate(from)} – ${fmtDate(to)}`}</p>
         {pop.length === 0 ? <p style={{ color: "#888", textAlign: "center", padding: "1.5rem" }}>No orders in this range.</p> :
           pop.map(r => <div key={r.item.id} style={{ background: "#fff", border: "1px solid #e8e8e8", borderRadius: 10, padding: "9px 14px", marginBottom: 6, display: "flex", alignItems: "center", gap: 12 }}>
             <span style={{ fontSize: 22, fontWeight: 700, color: "#8B1A2B", minWidth: 32, textAlign: "center" }}>{r.count}</span>
@@ -459,7 +496,7 @@ function Reports({ orders, items, user }) {
                   <td style={{ padding: "7px 8px", whiteSpace: "nowrap" }}>{o.customer_name}</td>
                   <td style={{ padding: "7px 8px", whiteSpace: "nowrap" }}>{o.customer_phone}</td>
                   <td style={{ padding: "7px 8px" }}>{it?.name}</td>
-                  <td style={{ padding: "7px 8px", whiteSpace: "nowrap" }}>{o.pickup_date} {o.pickup_time}</td>
+                  <td style={{ padding: "7px 8px", whiteSpace: "nowrap" }}>{fmtDate(o.pickup_date)} {fmtTime(o.pickup_time)}</td>
                   <td style={{ padding: "7px 8px", color: "#888" }}>{o.notes}</td>
                 </tr>;
               })}</tbody>
