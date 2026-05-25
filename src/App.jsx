@@ -16,7 +16,7 @@ const tod = () => new Date().toISOString().split("T")[0];
 const nowT = () => new Date().toTimeString().slice(0, 5);
 const inp = { width: "100%", boxSizing: "border-box", padding: "7px 10px", border: "1px solid #ddd", borderRadius: 7, fontSize: 13 };
 
-const LOGO_URL = "/Iavarone-MONOGRAM 2024_black social.png";
+const LOGO_URL = "/logo.png";
 
 function formatPhone(val) {
   const digits = val.replace(/\D/g, "").slice(0, 10);
@@ -310,7 +310,7 @@ function NewOrder({ user, orders, refresh, inv, refreshInv, items, setView }) {
     const { data: allOrders } = await supabase.from("orders").select("invoice_number, daily_number, location_id, order_date");
     const maxInvoice = (allOrders || []).reduce((m, o) => Math.max(m, o.invoice_number || 0), 999);
     const invoiceNumber = maxInvoice + 1;
-    const dailyNumber = (allOrders || []).filter(o => o.location_id === locationId && o.order_date === orderDate).length + 1;
+    const dailyNumber = (allOrders || []).filter(o => o.location_id === locationId && o.order_date === orderDate && o.status !== "cancelled").length + 1;
     const customerName = `${firstName.trim()} ${lastName.trim()}`;
 
     const newOrder = {
