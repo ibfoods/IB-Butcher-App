@@ -16,12 +16,20 @@ const tod = () => new Date().toISOString().split("T")[0];
 const nowT = () => new Date().toTimeString().slice(0, 5);
 const inp = { width: "100%", boxSizing: "border-box", padding: "7px 10px", border: "1px solid #ddd", borderRadius: 7, fontSize: 13 };
 
+const LOGO_URL = "/Iavarone-MONOGRAM 2024_black social.png";
+
+function formatPhone(val) {
+  const digits = val.replace(/\D/g, "").slice(0, 10);
+  if (digits.length <= 3) return digits.length ? `(${digits}` : "";
+  if (digits.length <= 6) return `(${digits.slice(0,3)}) ${digits.slice(3)}`;
+  return `(${digits.slice(0,3)}) ${digits.slice(3,6)}-${digits.slice(6)}`;
+}
+
 function printReceipt(o, items, locs) {
   const item = items.find(i => i.id === o.item_id);
   const loc = locs.find(l => l.id === o.location_id);
-  const w = window.open("", "_blank", "width=420,height=650");
-  if (!w) { alert("Please allow popups to print."); return; }
-  w.document.write(`<!DOCTYPE html><html><head><title>Order #${o.invoice_number}</title><style>
+  const logoUrl = window.location.origin + LOGO_URL;
+  const html = `<!DOCTYPE html><html><head><title>Order #${o.invoice_number}</title><style>
     body{font-family:Arial,sans-serif;font-size:12px;padding:20px;max-width:300px;margin:0 auto}
     h2{font-size:17px;text-align:center;letter-spacing:1px;margin:0 0 3px}
     .c{text-align:center}.s{font-size:10px;color:#666;text-align:center}
@@ -29,17 +37,36 @@ function printReceipt(o, items, locs) {
     .big{font-size:40px;font-weight:bold;text-align:center;margin:4px 0;color:#8B1A2B}
     .lbl{font-size:9px;text-transform:uppercase;letter-spacing:1px;color:#999;margin:8px 0 2px}
     .val{font-size:13px;font-weight:bold}
-  </style></head><body>`);
-  w.document.write(`<h2>IAVARONE BROS.</h2><p class="s">${loc?.address}<br>${loc?.city}<br>${loc?.phone}</p>`);
-  w.document.write(`<div class="d"></div><p class="lbl">Daily order #</p><p class="big">${o.daily_number}</p>`);
-  w.document.write(`<p class="lbl">Invoice</p><p class="val">#${o.invoice_number}</p>`);
-  w.document.write(`<div class="d"></div><p class="lbl">Customer</p><p class="val">${o.customer_name}</p><p>${o.customer_phone}</p>`);
-  w.document.write(`<div class="d"></div><p class="lbl">Item</p><p class="val">${item?.name || ""}</p>`);
-  w.document.write(`<div class="d"></div><p class="lbl">Order placed</p><p>${o.order_date} at ${o.order_time}</p>`);
-  w.document.write(`<p class="lbl">Pickup</p><p class="val">${o.pickup_date} at ${o.pickup_time}</p>`);
-  if (o.notes) w.document.write(`<div class="d"></div><p class="lbl">Notes</p><p>${o.notes}</p>`);
-  w.document.write(`<div class="d"></div><p class="c s">Taken by ${o.taken_by}</p>`);
-  w.document.write(`<script>window.onload=function(){window.print();}<\/script></body></html>`);
+    .logo{display:block;margin:0 auto 8px;width:60px;height:60px;object-fit:contain}
+  </style></head><body>
+    <img src="${logoUrl}" class="logo" />
+    <h2>IAVARONE BROS.</h2>
+    <p class="s">${loc?.address}<br>${loc?.city}<br>${loc?.phone}</p>
+    <div class="d"></div>
+    <p class="lbl">Daily order #</p><p class="big">${o.daily_number}</p>
+    <p class="lbl">Invoice</p><p class="val">#${o.invoice_number}</p>
+    <div class="d"></div>
+    <p class="lbl">Customer</p><p class="val">${o.customer_name}</p><p>${o.customer_phone}</p>
+    <div class="d"></div>
+    <p class="lbl">Item</p><p class="val">${item?.name || ""}</p>
+    <div class="d"></div>
+    <p class="lbl">Order placed</p><p>${o.order_date} at ${o.order_time}</p>
+    <p class="lbl">Pickup</p><p class="val">${o.pickup_date} at ${o.pickup_time}</p>
+    ${o.notes ? `<div class="d"></div><p class="lbl">Notes</p><p>${o.notes}</p>` : ""}
+    <div class="d"></div>
+    <p class="c s">Taken by ${o.taken_by}</p>
+    <script>
+      window.onload = function() {
+        var img = document.querySelector('img');
+        if (img.complete) { window.print(); }
+        else { img.onload = function() { window.print(); }; }
+      };
+    <\/script>
+  </body></html>`;
+
+  const w = window.open("", "_blank");
+  if (!w) { alert("Please allow popups to print."); return; }
+  w.document.write(html);
   w.document.close();
 }
 
@@ -181,7 +208,7 @@ function Orders({ user, orders, refresh, inv, refreshInv, items, can }) {
     if (!confirm("Cancel this order?")) return;
     const o = orders.find(x => x.id === id);
     if (o) {
-      const { data: existing } = await supabase.from("inventory").select("*").eq("location_id", o.location_id).eq("item_id", o.item_id).single();
+      const { data: existing } = await supabase.from("inventory").select("*").eq("location_id", o.location_id).eq("item_id", o.item_id).maybeSingle();
       if (existing) await supabase.from("inventory").update({ stock: existing.stock + 1 }).eq("id", existing.id);
       await refreshInv();
     }
@@ -259,8 +286,6 @@ function NewOrder({ user, orders, refresh, inv, refreshInv, items, setView }) {
   const [lastName, setLastName] = useState("");
   const [phone, setPhone] = useState("");
   const [itemId, setItemId] = useState(items[0]?.id || "");
-  const [orderDate, setOrderDate] = useState(tod());
-  const [orderTime, setOrderTime] = useState(nowT());
   const [pickupDate, setPickupDate] = useState("");
   const [pickupTime, setPickupTime] = useState("12:00");
   const [notes, setNotes] = useState("");
@@ -270,6 +295,8 @@ function NewOrder({ user, orders, refresh, inv, refreshInv, items, setView }) {
   const k = `${locationId}_${itemId}`;
   const stock = inv[k] ?? null;
 
+  const handlePhone = e => setPhone(formatPhone(e.target.value));
+
   const submit = async () => {
     if (!firstName.trim()) { setErr("First name required."); return; }
     if (!lastName.trim()) { setErr("Last name required."); return; }
@@ -277,8 +304,12 @@ function NewOrder({ user, orders, refresh, inv, refreshInv, items, setView }) {
     if (!pickupDate) { setErr("Pickup date required."); return; }
     if (stock !== null && stock <= 0) { setErr("Out of stock at this location."); return; }
 
+    const orderDate = tod();
+    const orderTime = nowT();
+
     const { data: allOrders } = await supabase.from("orders").select("invoice_number, daily_number, location_id, order_date");
-    const invoiceNumber = (allOrders || []).reduce((m, o) => Math.max(m, o.invoice_number || 0), 0) + 1;
+    const maxInvoice = (allOrders || []).reduce((m, o) => Math.max(m, o.invoice_number || 0), 999);
+    const invoiceNumber = maxInvoice + 1;
     const dailyNumber = (allOrders || []).filter(o => o.location_id === locationId && o.order_date === orderDate).length + 1;
     const customerName = `${firstName.trim()} ${lastName.trim()}`;
 
@@ -303,17 +334,17 @@ function NewOrder({ user, orders, refresh, inv, refreshInv, items, setView }) {
     await supabase.from("orders").insert(newOrder);
 
     if (stock !== null) {
-      const { data: existing } = await supabase.from("inventory").select("*").eq("location_id", locationId).eq("item_id", itemId).single();
+      const { data: existing } = await supabase.from("inventory").select("*").eq("location_id", locationId).eq("item_id", itemId).maybeSingle();
       if (existing) await supabase.from("inventory").update({ stock: stock - 1 }).eq("id", existing.id);
       await refreshInv();
     }
 
     await refresh();
     setDone(true);
-    setTimeout(() => { printReceipt(newOrder, items, LOCS); setView("orders"); }, 500);
+    setTimeout(() => { printReceipt(newOrder, items, LOCS); setView("orders"); }, 300);
   };
 
-  if (done) return <div style={{ textAlign: "center", padding: "3rem" }}><p style={{ fontSize: 32 }}>✓</p><p style={{ fontWeight: 500, marginTop: 8 }}>Order placed!</p><p style={{ color: "#888" }}>Opening print dialog...</p></div>;
+  if (done) return <div style={{ textAlign: "center", padding: "3rem" }}><p style={{ fontSize: 32 }}>✓</p><p style={{ fontWeight: 500, marginTop: 8 }}>Order placed!</p></div>;
 
   return (
     <div style={{ maxWidth: 500 }}>
@@ -323,7 +354,7 @@ function NewOrder({ user, orders, refresh, inv, refreshInv, items, setView }) {
         <F label="First name"><input value={firstName} onChange={e => setFirstName(e.target.value)} placeholder="First name" style={inp} /></F>
         <F label="Last name"><input value={lastName} onChange={e => setLastName(e.target.value)} placeholder="Last name" style={inp} /></F>
       </div>
-      <F label="Phone number"><input value={phone} onChange={e => setPhone(e.target.value)} placeholder="(xxx) xxx-xxxx" style={inp} /></F>
+      <F label="Phone number"><input value={phone} onChange={handlePhone} placeholder="(xxx) xxx-xxxx" style={inp} /></F>
       <F label="Item">
         <select value={itemId} onChange={e => setItemId(e.target.value)} style={inp}>
           {items.filter(i => i.active !== false).map(i => <option key={i.id} value={i.id}>{i.name}</option>)}
@@ -331,8 +362,6 @@ function NewOrder({ user, orders, refresh, inv, refreshInv, items, setView }) {
         {stock !== null && <p style={{ fontSize: 11, marginTop: 3, color: stock <= 0 ? "#c62828" : stock <= 5 ? "#e65100" : "#2e7d32" }}>{stock <= 0 ? "⚠ Out of stock" : stock <= 5 ? `⚠ Low stock (${stock} left)` : `${stock} in stock`}</p>}
       </F>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-        <F label="Order date"><input type="date" value={orderDate} onChange={e => setOrderDate(e.target.value)} style={inp} /></F>
-        <F label="Order time"><input type="time" value={orderTime} onChange={e => setOrderTime(e.target.value)} style={inp} /></F>
         <F label="Pickup date"><input type="date" value={pickupDate} onChange={e => setPickupDate(e.target.value)} style={inp} /></F>
         <F label="Pickup time"><input type="time" value={pickupTime} onChange={e => setPickupTime(e.target.value)} style={inp} /></F>
       </div>
@@ -361,17 +390,32 @@ function Reports({ orders, items, user }) {
 
   const printProd = () => {
     const ln = loc ? LOCS.find(l => l.id === loc)?.name : "All Locations";
-    const w = window.open("", "_blank", "width=750,height=800");
+    const logoUrl = window.location.origin + LOGO_URL;
+    const html = `<!DOCTYPE html><html><head><title>Production</title><style>
+      body{font-family:Arial,sans-serif;font-size:12px;padding:20px}
+      h2{margin:0 0 3px}p.sub{margin:0 0 12px;color:#666}
+      table{width:100%;border-collapse:collapse}
+      th{text-align:left;border-bottom:2px solid #000;padding:6px 8px;font-size:10px;text-transform:uppercase}
+      td{padding:6px 8px;border-bottom:1px solid #eee;font-size:12px}
+      .logo{width:50px;height:50px;object-fit:contain;margin-bottom:8px}
+    </style></head><body>
+      <img src="${logoUrl}" class="logo" />
+      <h2>Production Report — Iavarone Bros.</h2>
+      <p class="sub">Pickup: ${from === to ? from : `${from} to ${to}`} · ${ln}</p>
+      <table><thead><tr>
+        <th>#</th><th>Invoice</th><th>Location</th><th>Customer</th><th>Phone</th><th>Item</th><th>Pickup time</th><th>Notes</th>
+      </tr></thead><tbody>
+        ${prod.map(o => {
+          const it = items.find(i => i.id === o.item_id);
+          const l = LOCS.find(l => l.id === o.location_id);
+          return `<tr><td>${o.daily_number}</td><td>#${o.invoice_number}</td><td>${l?.name||""}</td><td>${o.customer_name}</td><td>${o.customer_phone}</td><td>${it?.name||""}</td><td>${o.pickup_time}</td><td>${o.notes||""}</td></tr>`;
+        }).join("")}
+      </tbody></table>
+      <script>window.onload=function(){window.print();}<\/script>
+    </body></html>`;
+    const w = window.open("", "_blank");
     if (!w) { alert("Allow popups to print."); return; }
-    w.document.write(`<!DOCTYPE html><html><head><title>Production</title><style>body{font-family:Arial,sans-serif;font-size:12px;padding:20px}h2{margin:0 0 3px}p.sub{margin:0 0 12px;color:#666}table{width:100%;border-collapse:collapse}th{text-align:left;border-bottom:2px solid #000;padding:6px 8px;font-size:10px;text-transform:uppercase}td{padding:6px 8px;border-bottom:1px solid #eee;font-size:12px}</style></head><body>`);
-    w.document.write(`<h2>Production Report — Iavarone Bros.</h2><p class="sub">Pickup: ${from === to ? from : `${from} to ${to}`} · ${ln}</p>`);
-    w.document.write(`<table><thead><tr><th>#</th><th>Invoice</th><th>Location</th><th>Customer</th><th>Phone</th><th>Item</th><th>Pickup time</th><th>Notes</th></tr></thead><tbody>`);
-    prod.forEach(o => {
-      const it = items.find(i => i.id === o.item_id);
-      const l = LOCS.find(l => l.id === o.location_id);
-      w.document.write(`<tr><td>${o.daily_number}</td><td>#${o.invoice_number}</td><td>${l?.name || ""}</td><td>${o.customer_name}</td><td>${o.customer_phone}</td><td>${it?.name || ""}</td><td>${o.pickup_time}</td><td>${o.notes || ""}</td></tr>`);
-    });
-    w.document.write(`</tbody></table><script>window.onload=function(){window.print();}<\/script></body></html>`);
+    w.document.write(html);
     w.document.close();
   };
 
