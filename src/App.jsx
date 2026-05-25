@@ -549,6 +549,7 @@ function Admin({ users, refreshUsers, items, refreshItems, user, can }) {
   const [ni, setNi] = useState("");
   const [ue, setUe] = useState("");
   const [ie, setIe] = useState("");
+  const [editingUser, setEditingUser] = useState(null);
 
   const addU = async () => {
     if (!name || !username || !password) { setUe("All fields required."); return; }
@@ -557,18 +558,33 @@ function Admin({ users, refreshUsers, items, refreshItems, user, can }) {
     await refreshUsers();
     setName(""); setUsername(""); setPassword(""); setRole("clerk"); setLocationId(""); setUe("");
   };
+
   const remU = async id => {
     if (id === user.id) return;
     if (!confirm("Remove user?")) return;
     await supabase.from("users").delete().eq("id", id);
     await refreshUsers();
   };
+
+  const saveEdit = async () => {
+    await supabase.from("users").update({
+      name: editingUser.name,
+      username: editingUser.username,
+      password: editingUser.password,
+      role: editingUser.role,
+      location_id: editingUser.location_id || null,
+    }).eq("id", editingUser.id);
+    await refreshUsers();
+    setEditingUser(null);
+  };
+
   const addI = async () => {
     if (!ni.trim()) { setIe("Name required."); return; }
     await supabase.from("items").insert({ id: `item_${Date.now()}`, name: ni.trim(), active: true });
     await refreshItems();
     setNi(""); setIe("");
   };
+
   const togI = async (id, active) => {
     await supabase.from("items").update({ active: !active }).eq("id", id);
     await refreshItems();
@@ -579,6 +595,7 @@ function Admin({ users, refreshUsers, items, refreshItems, user, can }) {
       <div style={{ display: "flex", gap: 6, marginBottom: "1rem" }}>
         {["users", "items"].map(t => <button key={t} onClick={() => setTab(t)} style={{ fontSize: 12, padding: "6px 14px", background: tab === t ? "#8B1A2B" : "#fff", color: tab === t ? "#fff" : "#888", border: "1px solid #ddd", borderRadius: 7, cursor: "pointer" }}>{t === "users" ? "Users" : "Items"}</button>)}
       </div>
+
       {tab === "users" && <div>
         <div style={{ background: "#fff", border: "1px solid #e8e8e8", borderRadius: 10, padding: "1rem", marginBottom: "1rem" }}>
           <p style={{ fontSize: 13, fontWeight: 500, marginBottom: 10 }}>Add user</p>
@@ -600,14 +617,48 @@ function Admin({ users, refreshUsers, items, refreshItems, user, can }) {
           {ue && <p style={{ color: "#c62828", fontSize: 12, marginBottom: 8 }}>{ue}</p>}
           <button onClick={addU} style={{ fontSize: 12, padding: "6px 14px", background: "#8B1A2B", color: "#fff", border: "none", borderRadius: 7, cursor: "pointer" }}>Add user</button>
         </div>
-        {users.map(u => <div key={u.id} style={{ background: "#fff", border: "1px solid #e8e8e8", borderRadius: 10, padding: "10px 14px", marginBottom: 5, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-          <div>
-            <p style={{ fontSize: 13, fontWeight: 500, margin: 0 }}>{u.name} <span style={{ fontWeight: 400, color: "#888" }}>@{u.username}</span></p>
-            <p style={{ fontSize: 11, color: "#888", margin: 0 }}>{ROLES[u.role]} · {u.location_id ? LOCS.find(l => l.id === u.location_id)?.name : "All locations"}</p>
-          </div>
-          {u.id !== user.id && <button onClick={() => remU(u.id)} style={{ fontSize: 12, color: "#c62828", background: "none", border: "none", cursor: "pointer" }}>Remove</button>}
-        </div>)}
+
+        {users.map(u => {
+          const isEditing = editingUser?.id === u.id;
+          return <div key={u.id} style={{ background: "#fff", border: "1px solid #e8e8e8", borderRadius: 10, padding: "10px 14px", marginBottom: 5 }}>
+            {isEditing ? (
+              <div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 8 }}>
+                  <input value={editingUser.name} onChange={e => setEditingUser(f => ({ ...f, name: e.target.value }))} placeholder="Full name" style={inp} />
+                  <input value={editingUser.username} onChange={e => setEditingUser(f => ({ ...f, username: e.target.value }))} placeholder="Username" style={inp} />
+                  <input type="password" value={editingUser.password} onChange={e => setEditingUser(f => ({ ...f, password: e.target.value }))} placeholder="Password" style={inp} />
+                  <select value={editingUser.role} onChange={e => setEditingUser(f => ({ ...f, role: e.target.value }))} style={inp}>
+                    <option value="clerk">Clerk</option>
+                    <option value="manager">Manager</option>
+                    <option value="admin">Admin</option>
+                    {can("master_admin") && <option value="master_admin">Master Admin</option>}
+                  </select>
+                  <select value={editingUser.location_id || ""} onChange={e => setEditingUser(f => ({ ...f, location_id: e.target.value || null }))} style={inp}>
+                    <option value="">All locations</option>
+                    {LOCS.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
+                  </select>
+                </div>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button onClick={saveEdit} style={{ fontSize: 12, padding: "6px 14px", background: "#8B1A2B", color: "#fff", border: "none", borderRadius: 7, cursor: "pointer" }}>Save</button>
+                  <button onClick={() => setEditingUser(null)} style={{ fontSize: 12, padding: "6px 14px", background: "none", border: "1px solid #ddd", borderRadius: 7, cursor: "pointer" }}>Cancel</button>
+                </div>
+              </div>
+            ) : (
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <div>
+                  <p style={{ fontSize: 13, fontWeight: 500, margin: 0 }}>{u.name} <span style={{ fontWeight: 400, color: "#888" }}>@{u.username}</span></p>
+                  <p style={{ fontSize: 11, color: "#888", margin: 0 }}>{ROLES[u.role]} · {u.location_id ? LOCS.find(l => l.id === u.location_id)?.name : "All locations"}</p>
+                </div>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button onClick={() => setEditingUser({ ...u })} style={{ fontSize: 12, color: "#8B1A2B", background: "none", border: "none", cursor: "pointer" }}>Edit</button>
+                  {u.id !== user.id && <button onClick={() => remU(u.id)} style={{ fontSize: 12, color: "#c62828", background: "none", border: "none", cursor: "pointer" }}>Remove</button>}
+                </div>
+              </div>
+            )}
+          </div>;
+        })}
       </div>}
+
       {tab === "items" && <div>
         <div style={{ background: "#fff", border: "1px solid #e8e8e8", borderRadius: 10, padding: "1rem", marginBottom: "1rem" }}>
           <p style={{ fontSize: 13, fontWeight: 500, marginBottom: 10 }}>Add item</p>
