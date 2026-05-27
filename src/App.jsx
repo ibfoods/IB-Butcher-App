@@ -46,6 +46,87 @@ function formatPhone(val) {
   return `(${digits.slice(0,3)}) ${digits.slice(3,6)}-${digits.slice(6)}`;
 }
 
+function labelHTML(orders, items, locs) {
+  const logoUrl = window.location.origin + LOGO_URL;
+  const labelsHtml = orders.map(o => {
+    const item = items.find(i => i.id === o.item_id);
+    const loc = locs.find(l => l.id === o.location_id);
+    return `
+      <div class="label">
+        <div class="top-row">
+          <div class="logo-area">
+            <img src="${logoUrl}" class="logo" />
+            <span class="website">www.ibfoods.com</span>
+          </div>
+          <div class="daily-num">${o.daily_number}</div>
+        </div>
+        <div class="customer">${o.customer_name}</div>
+        <div class="item">${item?.name || ""}</div>
+        <div class="bottom-row">
+          <div class="details">
+            <div class="detail-line"><span class="lbl">Pickup</span> ${fmtDate(o.pickup_date)} at ${fmtTime(o.pickup_time)}</div>
+            <div class="detail-line"><span class="lbl">Invoice</span> #${o.invoice_number}</div>
+            <div class="detail-line"><span class="lbl">Location</span> ${loc?.name || ""}</div>
+            ${o.notes ? `<div class="detail-line notes"><span class="lbl">Notes</span> ${o.notes}</div>` : ""}
+          </div>
+          <div class="qr-placeholder">
+            <div class="qr-box"></div>
+            <div class="qr-text">Scan for<br/>instructions</div>
+          </div>
+        </div>
+      </div>
+    `;
+  }).join('<div class="page-break"></div>');
+
+  return `<!DOCTYPE html><html><head><title>Labels</title><style>
+    @page { size: 4in 2.5in landscape; margin: 0; }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: Arial, sans-serif; background: white; }
+    .label {
+      width: 4in; height: 2.5in;
+      padding: 0.12in 0.15in;
+      display: flex; flex-direction: column; justify-content: space-between;
+      overflow: hidden;
+    }
+    .page-break { page-break-after: always; }
+    .top-row { display: flex; justify-content: space-between; align-items: flex-start; }
+    .logo-area { display: flex; flex-direction: column; align-items: flex-start; }
+    .logo { width: 0.55in; height: 0.55in; object-fit: contain; }
+    .website { font-size: 6pt; color: #666; margin-top: 2px; }
+    .daily-num { font-size: 52pt; font-weight: 900; line-height: 1; color: #000; text-align: right; }
+    .customer { font-size: 18pt; font-weight: 700; line-height: 1.1; margin: 0.04in 0 0.02in; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+    .item { font-size: 10pt; font-weight: 500; color: #333; margin-bottom: 0.05in; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+    .bottom-row { display: flex; justify-content: space-between; align-items: flex-end; }
+    .details { flex: 1; }
+    .detail-line { font-size: 7.5pt; line-height: 1.4; }
+    .lbl { font-weight: 700; text-transform: uppercase; font-size: 6pt; letter-spacing: 0.5px; }
+    .notes { color: #444; margin-top: 2px; }
+    .qr-placeholder { display: flex; flex-direction: column; align-items: center; margin-left: 0.1in; }
+    .qr-box { width: 0.6in; height: 0.6in; border: 1.5px dashed #999; }
+    .qr-text { font-size: 5.5pt; color: #999; text-align: center; margin-top: 2px; line-height: 1.3; }
+  </style></head><body>
+    ${labelsHtml}
+    <script>
+      window.onload = function() {
+        var imgs = document.querySelectorAll('img');
+        var loaded = 0;
+        if (imgs.length === 0) { window.print(); return; }
+        imgs.forEach(function(img) {
+          if (img.complete) { loaded++; if (loaded === imgs.length) window.print(); }
+          else { img.onload = function() { loaded++; if (loaded === imgs.length) window.print(); }; }
+        });
+      };
+    <\/script>
+  </body></html>`;
+}
+
+function printLabels(orders, items, locs) {
+  const w = window.open("", "_blank");
+  if (!w) { alert("Please allow popups to print."); return; }
+  w.document.write(labelHTML(orders, items, locs));
+  w.document.close();
+}
+
 function printReceipt(o, items, locs) {
   const item = items.find(i => i.id === o.item_id);
   const loc = locs.find(l => l.id === o.location_id);
@@ -271,7 +352,10 @@ function Orders({ user, orders, refresh, inv, refreshInv, items, can }) {
                 ))}
               </tbody>
             </table>
-            <button onClick={() => { setDetail(null); setTimeout(() => printReceipt(detail, items, LOCS), 200); }} style={{ marginTop: 12, width: "100%", background: "#8B1A2B", color: "#fff", border: "none", borderRadius: 8, padding: 9, fontSize: 13, cursor: "pointer" }}>Print receipt</button>
+            <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+              <button onClick={() => { setDetail(null); setTimeout(() => printReceipt(detail, items, LOCS), 200); }} style={{ flex: 1, background: "#8B1A2B", color: "#fff", border: "none", borderRadius: 8, padding: 9, fontSize: 13, cursor: "pointer" }}>Print receipt</button>
+              <button onClick={() => { setDetail(null); setTimeout(() => printLabels([detail], items, LOCS), 200); }} style={{ flex: 1, background: "#fff", color: "#8B1A2B", border: "1px solid #8B1A2B", borderRadius: 8, padding: 9, fontSize: 13, cursor: "pointer" }}>Print label</button>
+            </div>
           </div>
         </div>
       )}
@@ -495,7 +579,10 @@ function Reports({ orders, items, user }) {
         <span style={{ color: "#888", fontSize: 12 }}>to</span>
         <input type="date" value={to} onChange={e => setTo(e.target.value)} style={{ ...inp, minWidth: 130, width: "auto" }} />
         {type === "popularity" && <button onClick={printPop} style={{ ...inp, width: "auto", background: "#fff", cursor: "pointer" }}>Print</button>}
-        {type === "production" && <button onClick={printProd} style={{ ...inp, width: "auto", background: "#fff", cursor: "pointer" }}>Print</button>}
+        {type === "production" && <>
+          <button onClick={printProd} style={{ ...inp, width: "auto", background: "#fff", cursor: "pointer" }}>Print</button>
+          <button onClick={() => printLabels(prod, items, LOCS)} style={{ ...inp, width: "auto", background: "#fff", cursor: "pointer", color: "#8B1A2B", borderColor: "#8B1A2B" }}>Print labels</button>
+        </>}
       </div>
       {type === "popularity" && <div>
         <p style={{ color: "#888", fontSize: 12, marginBottom: 10 }}>{fil.length} orders · pickup {fmtDate(from) === fmtDate(to) ? fmtDate(from) : `${fmtDate(from)} – ${fmtDate(to)}`}</p>
