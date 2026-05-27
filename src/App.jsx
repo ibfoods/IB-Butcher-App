@@ -427,6 +427,31 @@ function Reports({ orders, items, user }) {
   const pop = items.map(i => ({ item: i, count: fil.filter(o => o.item_id === i.id).length })).filter(r => r.count > 0).sort((a, b) => b.count - a.count);
   const prod = [...fil].sort((a, b) => a.location_id.localeCompare(b.location_id) || a.daily_number - b.daily_number);
 
+  const printPop = () => {
+    const ln = loc ? LOCS.find(l => l.id === loc)?.name : "All Locations";
+    const logoUrl = window.location.origin + LOGO_URL;
+    const html = `<!DOCTYPE html><html><head><title>Popularity Report</title><style>
+      body{font-family:Arial,sans-serif;font-size:12px;padding:20px}
+      h2{margin:0 0 3px}p.sub{margin:0 0 12px;color:#666}
+      table{width:100%;border-collapse:collapse}
+      th{text-align:left;border-bottom:2px solid #000;padding:6px 8px;font-size:10px;text-transform:uppercase}
+      td{padding:6px 8px;border-bottom:1px solid #eee;font-size:12px}
+      .logo{width:50px;height:50px;object-fit:contain;margin-bottom:8px}
+    </style></head><body>
+      <img src="${logoUrl}" class="logo" />
+      <h2>Popularity Report — Iavarone Bros.</h2>
+      <p class="sub">Pickup: ${fmtDate(from) === fmtDate(to) ? fmtDate(from) : `${fmtDate(from)} to ${fmtDate(to)}`} · ${ln}</p>
+      <table><thead><tr><th>Count</th><th>Item</th></tr></thead><tbody>
+        ${pop.map(r => `<tr><td>${r.count}</td><td>${r.item.name}</td></tr>`).join("")}
+      </tbody></table>
+      <script>window.onload=function(){window.print();}<\/script>
+    </body></html>`;
+    const w = window.open("", "_blank");
+    if (!w) { alert("Allow popups to print."); return; }
+    w.document.write(html);
+    w.document.close();
+  };
+
   const printProd = () => {
     const ln = loc ? LOCS.find(l => l.id === loc)?.name : "All Locations";
     const logoUrl = window.location.origin + LOGO_URL;
@@ -469,6 +494,7 @@ function Reports({ orders, items, user }) {
         <input type="date" value={from} onChange={e => setFrom(e.target.value)} style={{ ...inp, minWidth: 130, width: "auto" }} />
         <span style={{ color: "#888", fontSize: 12 }}>to</span>
         <input type="date" value={to} onChange={e => setTo(e.target.value)} style={{ ...inp, minWidth: 130, width: "auto" }} />
+        {type === "popularity" && <button onClick={printPop} style={{ ...inp, width: "auto", background: "#fff", cursor: "pointer" }}>Print</button>}
         {type === "production" && <button onClick={printProd} style={{ ...inp, width: "auto", background: "#fff", cursor: "pointer" }}>Print</button>}
       </div>
       {type === "popularity" && <div>
