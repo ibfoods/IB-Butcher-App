@@ -46,11 +46,63 @@ function formatPhone(val) {
   return `(${digits.slice(0,3)}) ${digits.slice(3,6)}-${digits.slice(6)}`;
 }
 
-function labelHTML(orders, items, locs) {
+function printReceipt(order, orderItems, items, locs) {
+  const loc = locs.find(l => l.id === order.location_id);
+  const logoUrl = window.location.origin + LOGO_URL;
+  const takenBy = takenByInitials(order.taken_by);
+  const itemLines = orderItems.map(li => {
+    const item = items.find(i => i.id === li.item_id);
+    return `<p class="val">${li.quantity > 1 ? `${li.quantity}x ` : ""}${item?.name || ""}</p>`;
+  }).join("");
+
+  const html = `<!DOCTYPE html><html><head><title>Order #${order.invoice_number}</title><style>
+    body{font-family:Arial,sans-serif;font-size:12px;padding:20px;max-width:300px;margin:0 auto}
+    h2{font-size:17px;text-align:center;letter-spacing:1px;margin:0 0 3px}
+    .c{text-align:center}.s{font-size:10px;color:#666;text-align:center}
+    .d{border-top:1px dashed #aaa;margin:10px 0}
+    .big{font-size:40px;font-weight:bold;text-align:center;margin:4px 0;color:#8B1A2B}
+    .lbl{font-size:9px;text-transform:uppercase;letter-spacing:1px;color:#999;margin:8px 0 2px}
+    .val{font-size:13px;font-weight:bold;margin:1px 0}
+    .logo{display:block;margin:0 auto 8px;width:70px;height:70px;object-fit:contain}
+  </style></head><body>
+    <img src="${logoUrl}" class="logo" />
+    <h2>IAVARONE BROS.</h2>
+    <p class="s">${loc?.address}<br>${loc?.city}<br>${loc?.phone}</p>
+    <div class="d"></div>
+    <p class="lbl">Daily order #</p><p class="big">${order.daily_number}</p>
+    <div class="d"></div>
+    <p class="lbl">Customer</p><p class="val">${order.customer_name}</p>
+    <p class="lbl">Phone</p><p>${order.customer_phone}</p>
+    <p class="lbl">Pickup</p><p class="val">${fmtDate(order.pickup_date)} at ${fmtTime(order.pickup_time)}</p>
+    <p class="lbl">Invoice</p><p>#${order.invoice_number}</p>
+    <div class="d"></div>
+    <p class="lbl">Items</p>${itemLines}
+    ${order.notes ? `<div class="d"></div><p class="lbl">Notes</p><p>${order.notes}</p>` : ""}
+    <div class="d"></div>
+    <p class="c s">Taken by ${takenBy}</p>
+    <script>
+      window.onload = function() {
+        var img = document.querySelector('img');
+        if (img.complete) { window.print(); }
+        else { img.onload = function() { window.print(); }; }
+      };
+    <\/script>
+  </body></html>`;
+  const w = window.open("", "_blank");
+  if (!w) { alert("Please allow popups to print."); return; }
+  w.document.write(html);
+  w.document.close();
+}
+
+function labelHTML(orders, orderItemsMap, items, locs) {
   const logoUrl = window.location.origin + LOGO_URL;
   const labelsHtml = orders.map(o => {
-    const item = items.find(i => i.id === o.item_id);
     const loc = locs.find(l => l.id === o.location_id);
+    const lineItems = (orderItemsMap[o.id] || []);
+    const itemLines = lineItems.map(li => {
+      const item = items.find(i => i.id === li.item_id);
+      return `<div class="item">${li.quantity > 1 ? `${li.quantity}x ` : ""}${item?.name || ""}</div>`;
+    }).join("");
     return `
       <div class="label">
         <div class="top-row">
@@ -61,7 +113,7 @@ function labelHTML(orders, items, locs) {
           <div class="daily-num">${o.daily_number}</div>
         </div>
         <div class="customer">${o.customer_name}</div>
-        <div class="item">${item?.name || ""}</div>
+        ${itemLines}
         <div class="bottom-row">
           <div class="details">
             <div class="detail-line"><span class="lbl">Pickup</span> ${fmtDate(o.pickup_date)} at ${fmtTime(o.pickup_time)}</div>
@@ -82,20 +134,15 @@ function labelHTML(orders, items, locs) {
     @page { size: 4in 2.5in landscape; margin: 0; }
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body { font-family: Arial, sans-serif; background: white; }
-    .label {
-      width: 4in; height: 2.5in;
-      padding: 0.12in 0.15in;
-      display: flex; flex-direction: column; justify-content: space-between;
-      overflow: hidden;
-    }
+    .label { width: 4in; height: 2.5in; padding: 0.12in 0.15in; display: flex; flex-direction: column; justify-content: space-between; overflow: hidden; }
     .page-break { page-break-after: always; }
     .top-row { display: flex; justify-content: space-between; align-items: flex-start; }
     .logo-area { display: flex; flex-direction: column; align-items: flex-start; }
     .logo { width: 0.55in; height: 0.55in; object-fit: contain; }
     .website { font-size: 6pt; color: #666; margin-top: 2px; }
     .daily-num { font-size: 52pt; font-weight: 900; line-height: 1; color: #000; text-align: right; }
-    .customer { font-size: 18pt; font-weight: 700; line-height: 1.1; margin: 0.04in 0 0.02in; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-    .item { font-size: 10pt; font-weight: 500; color: #333; margin-bottom: 0.05in; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+    .customer { font-size: 16pt; font-weight: 700; line-height: 1.1; margin: 0.03in 0 0.01in; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+    .item { font-size: 8.5pt; font-weight: 500; color: #333; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
     .bottom-row { display: flex; justify-content: space-between; align-items: flex-end; }
     .details { flex: 1; }
     .detail-line { font-size: 7.5pt; line-height: 1.4; }
@@ -120,54 +167,10 @@ function labelHTML(orders, items, locs) {
   </body></html>`;
 }
 
-function printLabels(orders, items, locs) {
+function printLabels(orders, orderItemsMap, items, locs) {
   const w = window.open("", "_blank");
   if (!w) { alert("Please allow popups to print."); return; }
-  w.document.write(labelHTML(orders, items, locs));
-  w.document.close();
-}
-
-function printReceipt(o, items, locs) {
-  const item = items.find(i => i.id === o.item_id);
-  const loc = locs.find(l => l.id === o.location_id);
-  const logoUrl = window.location.origin + LOGO_URL;
-  const takenBy = takenByInitials(o.taken_by);
-  const html = `<!DOCTYPE html><html><head><title>Order #${o.invoice_number}</title><style>
-    body{font-family:Arial,sans-serif;font-size:12px;padding:20px;max-width:300px;margin:0 auto}
-    h2{font-size:17px;text-align:center;letter-spacing:1px;margin:0 0 3px}
-    .c{text-align:center}.s{font-size:10px;color:#666;text-align:center}
-    .d{border-top:1px dashed #aaa;margin:10px 0}
-    .big{font-size:40px;font-weight:bold;text-align:center;margin:4px 0;color:#8B1A2B}
-    .lbl{font-size:9px;text-transform:uppercase;letter-spacing:1px;color:#999;margin:8px 0 2px}
-    .val{font-size:13px;font-weight:bold}
-    .logo{display:block;margin:0 auto 8px;width:70px;height:70px;object-fit:contain}
-  </style></head><body>
-    <img src="${logoUrl}" class="logo" />
-    <h2>IAVARONE BROS.</h2>
-    <p class="s">${loc?.address}<br>${loc?.city}<br>${loc?.phone}</p>
-    <div class="d"></div>
-    <p class="lbl">Daily order #</p><p class="big">${o.daily_number}</p>
-    <div class="d"></div>
-    <p class="lbl">Customer</p><p class="val">${o.customer_name}</p>
-    <p class="lbl">Phone</p><p>${o.customer_phone}</p>
-    <p class="lbl">Pickup</p><p class="val">${fmtDate(o.pickup_date)} at ${fmtTime(o.pickup_time)}</p>
-    <p class="lbl">Invoice</p><p>#${o.invoice_number}</p>
-    <div class="d"></div>
-    <p class="lbl">Item</p><p class="val">${item?.name || ""}</p>
-    ${o.notes ? `<div class="d"></div><p class="lbl">Notes</p><p>${o.notes}</p>` : ""}
-    <div class="d"></div>
-    <p class="c s">Taken by ${takenBy}</p>
-    <script>
-      window.onload = function() {
-        var img = document.querySelector('img');
-        if (img.complete) { window.print(); }
-        else { img.onload = function() { window.print(); }; }
-      };
-    <\/script>
-  </body></html>`;
-  const w = window.open("", "_blank");
-  if (!w) { alert("Please allow popups to print."); return; }
-  w.document.write(html);
+  w.document.write(labelHTML(orders, orderItemsMap, items, locs));
   w.document.close();
 }
 
@@ -180,6 +183,7 @@ export default function App() {
   const [view, setView] = useState("login");
   const [users, setUsers] = useState([]);
   const [orders, setOrders] = useState([]);
+  const [orderItems, setOrderItems] = useState([]);
   const [inv, setInv] = useState({});
   const [items, setItems] = useState([]);
   const [ready, setReady] = useState(false);
@@ -188,10 +192,12 @@ export default function App() {
     (async () => {
       const { data: u } = await supabase.from("users").select("*");
       const { data: o } = await supabase.from("orders").select("*");
+      const { data: oi } = await supabase.from("order_items").select("*");
       const { data: i } = await supabase.from("inventory").select("*");
       const { data: it } = await supabase.from("items").select("*");
       setUsers(u || []);
       setOrders(o || []);
+      setOrderItems(oi || []);
       const invMap = {};
       (i || []).forEach(r => { invMap[`${r.location_id}_${r.item_id}`] = r.stock; });
       setInv(invMap);
@@ -200,10 +206,21 @@ export default function App() {
     })();
   }, []);
 
-  const refreshOrders = useCallback(async () => { const { data } = await supabase.from("orders").select("*"); setOrders(data || []); }, []);
+  const refreshOrders = useCallback(async () => {
+    const { data: o } = await supabase.from("orders").select("*");
+    const { data: oi } = await supabase.from("order_items").select("*");
+    setOrders(o || []);
+    setOrderItems(oi || []);
+  }, []);
   const refreshInv = useCallback(async () => { const { data } = await supabase.from("inventory").select("*"); const m = {}; (data || []).forEach(r => { m[`${r.location_id}_${r.item_id}`] = r.stock; }); setInv(m); }, []);
   const refreshItems = useCallback(async () => { const { data } = await supabase.from("items").select("*"); setItems(data || []); }, []);
   const refreshUsers = useCallback(async () => { const { data } = await supabase.from("users").select("*"); setUsers(data || []); }, []);
+
+  const orderItemsMap = {};
+  orderItems.forEach(oi => {
+    if (!orderItemsMap[oi.order_id]) orderItemsMap[oi.order_id] = [];
+    orderItemsMap[oi.order_id].push(oi);
+  });
 
   const can = (min) => { const h = ["clerk", "manager", "admin", "master_admin"]; return h.indexOf(user?.role) >= h.indexOf(min); };
   const logout = () => { setUser(null); setView("login"); };
@@ -217,9 +234,9 @@ export default function App() {
     <div style={{ fontFamily: "system-ui,sans-serif", fontSize: 14, background: "#f5f5f5", minHeight: "100vh" }}>
       <Nav user={user} loc={loc} view={view} setView={setView} can={can} onLogout={logout} />
       <div style={{ maxWidth: 860, margin: "0 auto", padding: "1rem" }}>
-        {view === "orders" && <Orders user={user} orders={orders} refresh={refreshOrders} inv={inv} refreshInv={refreshInv} items={items} can={can} />}
+        {view === "orders" && <Orders user={user} orders={orders} orderItemsMap={orderItemsMap} refresh={refreshOrders} inv={inv} refreshInv={refreshInv} items={items} can={can} />}
         {view === "new_order" && <NewOrder user={user} orders={orders} refresh={refreshOrders} inv={inv} refreshInv={refreshInv} items={items} setView={setView} />}
-        {view === "reports" && <Reports orders={orders} items={items} user={user} />}
+        {view === "reports" && <Reports orders={orders} orderItemsMap={orderItemsMap} items={items} user={user} />}
         {view === "inventory" && can("manager") && <Inventory inv={inv} refreshInv={refreshInv} items={items} user={user} />}
         {view === "admin" && can("admin") && <Admin users={users} refreshUsers={refreshUsers} items={items} refreshItems={refreshItems} user={user} can={can} />}
       </div>
@@ -242,7 +259,7 @@ function Login({ users, onLogin }) {
         <div style={{ textAlign: "center", marginBottom: "1.5rem" }}>
           <div style={{ width: 64, height: 64, borderRadius: "50%", background: "#8B1A2B", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 10px", fontSize: 20, fontWeight: 700, color: "#fff" }}>IB</div>
           <p style={{ fontSize: 17, fontWeight: 500 }}>Iavarone Bros.</p>
-          <p style={{ color: "#888", fontSize: 12 }}>Turkey Order System</p>
+          <p style={{ color: "#888", fontSize: 12 }}>Butcher Order System</p>
         </div>
         <div style={{ background: "#fff", border: "1px solid #e8e8e8", borderRadius: 10, padding: 20 }}>
           <div style={{ marginBottom: 10 }}>
@@ -292,7 +309,7 @@ function Nav({ user, loc, view, setView, can, onLogout }) {
   );
 }
 
-function Orders({ user, orders, refresh, inv, refreshInv, items, can }) {
+function Orders({ user, orders, orderItemsMap, refresh, inv, refreshInv, items, can }) {
   const [search, setSearch] = useState("");
   const [lf, setLf] = useState(user.location_id || "");
   const [df, setDf] = useState("");
@@ -311,8 +328,11 @@ function Orders({ user, orders, refresh, inv, refreshInv, items, can }) {
     if (!confirm("Cancel this order?")) return;
     const o = orders.find(x => x.id === id);
     if (o) {
-      const { data: existing } = await supabase.from("inventory").select("*").eq("location_id", o.location_id).eq("item_id", o.item_id).maybeSingle();
-      if (existing) await supabase.from("inventory").update({ stock: existing.stock + 1 }).eq("id", existing.id);
+      const lineItems = orderItemsMap[id] || [];
+      for (const li of lineItems) {
+        const { data: existing } = await supabase.from("inventory").select("*").eq("location_id", o.location_id).eq("item_id", li.item_id).maybeSingle();
+        if (existing) await supabase.from("inventory").update({ stock: existing.stock + li.quantity }).eq("id", existing.id);
+      }
       await refreshInv();
     }
     await supabase.from("orders").update({ status: "cancelled" }).eq("id", id);
@@ -328,7 +348,7 @@ function Orders({ user, orders, refresh, inv, refreshInv, items, can }) {
     <div>
       {detail && (
         <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 999, padding: "1rem" }}>
-          <div style={{ background: "#fff", borderRadius: 10, padding: 20, maxWidth: 400, width: "100%", border: "1px solid #e8e8e8" }}>
+          <div style={{ background: "#fff", borderRadius: 10, padding: 20, maxWidth: 420, width: "100%", border: "1px solid #e8e8e8", maxHeight: "90vh", overflowY: "auto" }}>
             <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 12 }}>
               <p style={{ fontWeight: 500 }}>Order #{detail.invoice_number}</p>
               <button onClick={() => setDetail(null)} style={{ background: "none", border: "none", fontSize: 20, color: "#888", cursor: "pointer" }}>×</button>
@@ -340,7 +360,6 @@ function Orders({ user, orders, refresh, inv, refreshInv, items, can }) {
                   ["Phone", detail.customer_phone],
                   ["Pickup", `${fmtDate(detail.pickup_date)} at ${fmtTime(detail.pickup_time)}`],
                   ["Invoice", `#${detail.invoice_number}`],
-                  ["Item", items.find(i => i.id === detail.item_id)?.name],
                   ["Location", LOCS.find(l => l.id === detail.location_id)?.name],
                   ["Order placed", `${fmtDate(detail.order_date)} at ${fmtTime(detail.order_time)}`],
                   ["Daily #", `#${detail.daily_number}`],
@@ -352,9 +371,19 @@ function Orders({ user, orders, refresh, inv, refreshInv, items, can }) {
                 ))}
               </tbody>
             </table>
+            <div style={{ marginTop: 10, borderTop: "0.5px solid #eee", paddingTop: 10 }}>
+              <p style={{ fontSize: 11, color: "#888", textTransform: "uppercase", letterSpacing: 1, marginBottom: 6 }}>Items</p>
+              {(orderItemsMap[detail.id] || []).map((li, i) => {
+                const item = items.find(x => x.id === li.item_id);
+                return <div key={i} style={{ display: "flex", justifyContent: "space-between", fontSize: 13, padding: "3px 0" }}>
+                  <span>{item?.name}</span>
+                  <span style={{ color: "#888" }}>x{li.quantity}</span>
+                </div>;
+              })}
+            </div>
             <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
-              <button onClick={() => { setDetail(null); setTimeout(() => printReceipt(detail, items, LOCS), 200); }} style={{ flex: 1, background: "#8B1A2B", color: "#fff", border: "none", borderRadius: 8, padding: 9, fontSize: 13, cursor: "pointer" }}>Print receipt</button>
-              <button onClick={() => { setDetail(null); setTimeout(() => printLabels([detail], items, LOCS), 200); }} style={{ flex: 1, background: "#fff", color: "#8B1A2B", border: "1px solid #8B1A2B", borderRadius: 8, padding: 9, fontSize: 13, cursor: "pointer" }}>Print label</button>
+              <button onClick={() => { setDetail(null); setTimeout(() => printReceipt(detail, orderItemsMap[detail.id] || [], items, LOCS), 200); }} style={{ flex: 1, background: "#8B1A2B", color: "#fff", border: "none", borderRadius: 8, padding: 9, fontSize: 13, cursor: "pointer" }}>Print receipt</button>
+              <button onClick={() => { setDetail(null); setTimeout(() => printLabels([detail], { [detail.id]: orderItemsMap[detail.id] || [] }, items, LOCS), 200); }} style={{ flex: 1, background: "#fff", color: "#8B1A2B", border: "1px solid #8B1A2B", borderRadius: 8, padding: 9, fontSize: 13, cursor: "pointer" }}>Print label</button>
             </div>
           </div>
         </div>
@@ -370,9 +399,13 @@ function Orders({ user, orders, refresh, inv, refreshInv, items, can }) {
       </div>
       {filtered.length === 0 ? <p style={{ color: "#888", textAlign: "center", padding: "2rem" }}>No orders found.</p> :
         filtered.map(o => {
-          const item = items.find(i => i.id === o.item_id);
           const loc = LOCS.find(l => l.id === o.location_id);
           const sc = SCOLOR[o.status] || { bg: "#eee", txt: "#666" };
+          const lineItems = orderItemsMap[o.id] || [];
+          const itemSummary = lineItems.map(li => {
+            const item = items.find(i => i.id === li.item_id);
+            return `${li.quantity > 1 ? `${li.quantity}x ` : ""}${item?.name || ""}`;
+          }).join(", ");
           return (
             <div key={o.id} onClick={() => setDetail(o)} style={{ background: "#fff", border: "1px solid #e8e8e8", borderRadius: 10, padding: "10px 14px", marginBottom: 6, cursor: "pointer", display: "flex", alignItems: "center", gap: 12, opacity: o.status === "cancelled" ? 0.6 : 1 }}>
               <div style={{ textAlign: "center", minWidth: 40 }}>
@@ -381,7 +414,7 @@ function Orders({ user, orders, refresh, inv, refreshInv, items, can }) {
               </div>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <p style={{ fontWeight: 500, fontSize: 13, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", margin: 0 }}>{o.customer_name}</p>
-                <p style={{ fontSize: 12, color: "#888", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", margin: 0 }}>{item?.name}</p>
+                <p style={{ fontSize: 12, color: "#888", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", margin: 0 }}>{itemSummary}</p>
                 <p style={{ fontSize: 12, color: "#888", margin: 0 }}>Pickup: {fmtDate(o.pickup_date)} {fmtTime(o.pickup_time)} · {loc?.name}</p>
               </div>
               <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 5 }}>
@@ -407,24 +440,24 @@ function NewOrder({ user, orders, refresh, inv, refreshInv, items, setView }) {
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
   const [phone, setPhone] = useState("");
-  const [itemId, setItemId] = useState(items[0]?.id || "");
+  const [lineItems, setLineItems] = useState([{ item_id: items[0]?.id || "", quantity: 1 }]);
   const [pickupDate, setPickupDate] = useState("");
   const [pickupTime, setPickupTime] = useState("12:00");
   const [notes, setNotes] = useState("");
   const [err, setErr] = useState("");
   const [done, setDone] = useState(false);
 
-  const k = `${locationId}_${itemId}`;
-  const stock = inv[k] ?? null;
-
   const handlePhone = e => setPhone(formatPhone(e.target.value));
+  const addLineItem = () => setLineItems(li => [...li, { item_id: items[0]?.id || "", quantity: 1 }]);
+  const removeLineItem = i => setLineItems(li => li.filter((_, idx) => idx !== i));
+  const updateLineItem = (i, field, val) => setLineItems(li => li.map((x, idx) => idx === i ? { ...x, [field]: val } : x));
 
   const submit = async () => {
     if (!firstName.trim()) { setErr("First name required."); return; }
     if (!lastName.trim()) { setErr("Last name required."); return; }
     if (!phone.trim()) { setErr("Phone required."); return; }
     if (!pickupDate) { setErr("Pickup date required."); return; }
-    if (stock !== null && stock <= 0) { setErr("Out of stock at this location."); return; }
+    if (lineItems.length === 0) { setErr("Add at least one item."); return; }
 
     const orderDate = tod();
     const orderTime = nowT();
@@ -441,7 +474,7 @@ function NewOrder({ user, orders, refresh, inv, refreshInv, items, setView }) {
       location_id: locationId,
       customer_name: customerName,
       customer_phone: phone,
-      item_id: itemId,
+      item_id: lineItems[0]?.item_id || "",
       order_date: orderDate,
       order_time: orderTime,
       pickup_date: pickupDate,
@@ -456,21 +489,31 @@ function NewOrder({ user, orders, refresh, inv, refreshInv, items, setView }) {
 
     await supabase.from("orders").insert(newOrder);
 
-    if (stock !== null) {
-      const { data: existing } = await supabase.from("inventory").select("*").eq("location_id", locationId).eq("item_id", itemId).maybeSingle();
-      if (existing) await supabase.from("inventory").update({ stock: stock - 1 }).eq("id", existing.id);
-      await refreshInv();
-    }
+    const orderItemRows = lineItems.map(li => ({
+      order_id: newOrder.id,
+      item_id: li.item_id,
+      quantity: parseInt(li.quantity) || 1,
+    }));
+    await supabase.from("order_items").insert(orderItemRows);
 
+    for (const li of lineItems) {
+      const k = `${locationId}_${li.item_id}`;
+      const currentStock = inv[k] ?? null;
+      if (currentStock !== null) {
+        const { data: existing } = await supabase.from("inventory").select("*").eq("location_id", locationId).eq("item_id", li.item_id).maybeSingle();
+        if (existing) await supabase.from("inventory").update({ stock: Math.max(0, existing.stock - (parseInt(li.quantity) || 1)) }).eq("id", existing.id);
+      }
+    }
+    await refreshInv();
     await refresh();
     setDone(true);
-    setTimeout(() => { printReceipt(newOrder, items, LOCS); setView("orders"); }, 300);
+    setTimeout(() => { printReceipt(newOrder, orderItemRows, items, LOCS); setView("orders"); }, 300);
   };
 
   if (done) return <div style={{ textAlign: "center", padding: "3rem" }}><p style={{ fontSize: 32 }}>✓</p><p style={{ fontWeight: 500, marginTop: 8 }}>Order placed!</p></div>;
 
   return (
-    <div style={{ maxWidth: 500 }}>
+    <div style={{ maxWidth: 520 }}>
       <p style={{ fontSize: 15, fontWeight: 500, marginBottom: "1rem" }}>New order</p>
       {!user.location_id && <F label="Location"><select value={locationId} onChange={e => setLocationId(e.target.value)} style={inp}>{LOCS.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}</select></F>}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
@@ -478,12 +521,19 @@ function NewOrder({ user, orders, refresh, inv, refreshInv, items, setView }) {
         <F label="Last name"><input value={lastName} onChange={e => setLastName(e.target.value)} placeholder="Last name" style={inp} /></F>
       </div>
       <F label="Phone number"><input value={phone} onChange={handlePhone} placeholder="(xxx) xxx-xxxx" style={inp} /></F>
-      <F label="Item">
-        <select value={itemId} onChange={e => setItemId(e.target.value)} style={inp}>
-          {items.filter(i => i.active !== false).map(i => <option key={i.id} value={i.id}>{i.name}</option>)}
-        </select>
-        {stock !== null && <p style={{ fontSize: 11, marginTop: 3, color: stock <= 0 ? "#c62828" : stock <= 5 ? "#e65100" : "#2e7d32" }}>{stock <= 0 ? "⚠ Out of stock" : stock <= 5 ? `⚠ Low stock (${stock} left)` : `${stock} in stock`}</p>}
-      </F>
+      <div style={{ marginBottom: 12 }}>
+        <p style={{ fontSize: 12, color: "#666", marginBottom: 6 }}>Items</p>
+        {lineItems.map((li, i) => (
+          <div key={i} style={{ display: "flex", gap: 8, marginBottom: 6, alignItems: "center" }}>
+            <select value={li.item_id} onChange={e => updateLineItem(i, "item_id", e.target.value)} style={{ ...inp, flex: 3 }}>
+              {items.filter(x => x.active !== false).map(x => <option key={x.id} value={x.id}>{x.name}</option>)}
+            </select>
+            <input type="number" min={1} value={li.quantity} onChange={e => updateLineItem(i, "quantity", e.target.value)} style={{ ...inp, width: 60, flex: "none" }} />
+            {lineItems.length > 1 && <button onClick={() => removeLineItem(i)} style={{ background: "none", border: "none", color: "#c62828", fontSize: 18, cursor: "pointer", padding: "0 4px", flexShrink: 0 }}>×</button>}
+          </div>
+        ))}
+        <button onClick={addLineItem} style={{ fontSize: 12, color: "#8B1A2B", background: "none", border: "1px solid #8B1A2B", borderRadius: 7, padding: "5px 12px", cursor: "pointer", marginTop: 2 }}>+ Add item</button>
+      </div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
         <F label="Pickup date"><input type="date" value={pickupDate} onChange={e => setPickupDate(e.target.value)} style={inp} /></F>
         <F label="Pickup time"><input type="time" value={pickupTime} onChange={e => setPickupTime(e.target.value)} style={inp} /></F>
@@ -495,7 +545,7 @@ function NewOrder({ user, orders, refresh, inv, refreshInv, items, setView }) {
   );
 }
 
-function Reports({ orders, items, user }) {
+function Reports({ orders, orderItemsMap, items, user }) {
   const [type, setType] = useState("popularity");
   const [from, setFrom] = useState(tod());
   const [to, setTo] = useState(tod());
@@ -508,7 +558,14 @@ function Reports({ orders, items, user }) {
     return true;
   });
 
-  const pop = items.map(i => ({ item: i, count: fil.filter(o => o.item_id === i.id).length })).filter(r => r.count > 0).sort((a, b) => b.count - a.count);
+  const popMap = {};
+  fil.forEach(o => {
+    (orderItemsMap[o.id] || []).forEach(li => {
+      if (!popMap[li.item_id]) popMap[li.item_id] = 0;
+      popMap[li.item_id] += parseInt(li.quantity) || 1;
+    });
+  });
+  const pop = items.map(i => ({ item: i, count: popMap[i.id] || 0 })).filter(r => r.count > 0).sort((a, b) => b.count - a.count);
   const prod = [...fil].sort((a, b) => a.location_id.localeCompare(b.location_id) || a.daily_number - b.daily_number);
 
   const printPop = () => {
@@ -525,7 +582,7 @@ function Reports({ orders, items, user }) {
       <img src="${logoUrl}" class="logo" />
       <h2>Popularity Report — Iavarone Bros.</h2>
       <p class="sub">Pickup: ${fmtDate(from) === fmtDate(to) ? fmtDate(from) : `${fmtDate(from)} to ${fmtDate(to)}`} · ${ln}</p>
-      <table><thead><tr><th>Count</th><th>Item</th></tr></thead><tbody>
+      <table><thead><tr><th>Qty</th><th>Item</th></tr></thead><tbody>
         ${pop.map(r => `<tr><td>${r.count}</td><td>${r.item.name}</td></tr>`).join("")}
       </tbody></table>
       <script>window.onload=function(){window.print();}<\/script>
@@ -544,19 +601,22 @@ function Reports({ orders, items, user }) {
       h2{margin:0 0 3px}p.sub{margin:0 0 12px;color:#666}
       table{width:100%;border-collapse:collapse}
       th{text-align:left;border-bottom:2px solid #000;padding:6px 8px;font-size:10px;text-transform:uppercase}
-      td{padding:6px 8px;border-bottom:1px solid #eee;font-size:12px}
+      td{padding:6px 8px;border-bottom:1px solid #eee;font-size:12px;vertical-align:top}
       .logo{width:50px;height:50px;object-fit:contain;margin-bottom:8px}
     </style></head><body>
       <img src="${logoUrl}" class="logo" />
       <h2>Production Report — Iavarone Bros.</h2>
       <p class="sub">Pickup: ${fmtDate(from) === fmtDate(to) ? fmtDate(from) : `${fmtDate(from)} to ${fmtDate(to)}`} · ${ln}</p>
       <table><thead><tr>
-        <th>#</th><th>Invoice</th><th>Location</th><th>Customer</th><th>Phone</th><th>Item</th><th>Pickup time</th><th>Notes</th>
+        <th>#</th><th>Invoice</th><th>Location</th><th>Customer</th><th>Phone</th><th>Items</th><th>Pickup time</th><th>Notes</th>
       </tr></thead><tbody>
         ${prod.map(o => {
-          const it = items.find(i => i.id === o.item_id);
           const l = LOCS.find(l => l.id === o.location_id);
-          return `<tr><td>${o.daily_number}</td><td>#${o.invoice_number}</td><td>${l?.name||""}</td><td>${o.customer_name}</td><td>${o.customer_phone}</td><td>${it?.name||""}</td><td>${fmtTime(o.pickup_time)}</td><td>${o.notes||""}</td></tr>`;
+          const lineItems = (orderItemsMap[o.id] || []).map(li => {
+            const it = items.find(i => i.id === li.item_id);
+            return `${li.quantity > 1 ? `${li.quantity}x ` : ""}${it?.name || ""}`;
+          }).join("<br/>");
+          return `<tr><td>${o.daily_number}</td><td>#${o.invoice_number}</td><td>${l?.name||""}</td><td>${o.customer_name}</td><td>${o.customer_phone}</td><td>${lineItems}</td><td>${fmtTime(o.pickup_time)}</td><td>${o.notes||""}</td></tr>`;
         }).join("")}
       </tbody></table>
       <script>window.onload=function(){window.print();}<\/script>
@@ -581,7 +641,7 @@ function Reports({ orders, items, user }) {
         {type === "popularity" && <button onClick={printPop} style={{ ...inp, width: "auto", background: "#fff", cursor: "pointer" }}>Print</button>}
         {type === "production" && <>
           <button onClick={printProd} style={{ ...inp, width: "auto", background: "#fff", cursor: "pointer" }}>Print</button>
-          <button onClick={() => printLabels(prod, items, LOCS)} style={{ ...inp, width: "auto", background: "#fff", cursor: "pointer", color: "#8B1A2B", borderColor: "#8B1A2B" }}>Print labels</button>
+          <button onClick={() => printLabels(prod, orderItemsMap, items, LOCS)} style={{ ...inp, width: "auto", background: "#fff", cursor: "pointer", color: "#8B1A2B", borderColor: "#8B1A2B" }}>Print labels</button>
         </>}
       </div>
       {type === "popularity" && <div>
@@ -598,17 +658,20 @@ function Reports({ orders, items, user }) {
         {prod.length === 0 ? <p style={{ color: "#888", textAlign: "center", padding: "1.5rem" }}>No orders in this range.</p> :
           <div style={{ overflowX: "auto" }}>
             <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
-              <thead><tr style={{ borderBottom: "1px solid #eee" }}>{["#", "Invoice", "Location", "Customer", "Phone", "Item", "Pickup", "Notes"].map(h => <th key={h} style={{ textAlign: "left", padding: "7px 8px", fontSize: 10, color: "#888", fontWeight: 500, textTransform: "uppercase", whiteSpace: "nowrap" }}>{h}</th>)}</tr></thead>
+              <thead><tr style={{ borderBottom: "1px solid #eee" }}>{["#", "Invoice", "Location", "Customer", "Phone", "Items", "Pickup", "Notes"].map(h => <th key={h} style={{ textAlign: "left", padding: "7px 8px", fontSize: 10, color: "#888", fontWeight: 500, textTransform: "uppercase", whiteSpace: "nowrap" }}>{h}</th>)}</tr></thead>
               <tbody>{prod.map(o => {
-                const it = items.find(i => i.id === o.item_id);
                 const l = LOCS.find(l => l.id === o.location_id);
+                const lineItems = (orderItemsMap[o.id] || []).map(li => {
+                  const it = items.find(i => i.id === li.item_id);
+                  return `${li.quantity > 1 ? `${li.quantity}x ` : ""}${it?.name || ""}`;
+                });
                 return <tr key={o.id} style={{ borderBottom: "1px solid #f5f5f5" }}>
                   <td style={{ padding: "7px 8px", fontWeight: 700, color: "#8B1A2B" }}>{o.daily_number}</td>
                   <td style={{ padding: "7px 8px", color: "#888" }}>#{o.invoice_number}</td>
                   <td style={{ padding: "7px 8px", whiteSpace: "nowrap" }}>{l?.name}</td>
                   <td style={{ padding: "7px 8px", whiteSpace: "nowrap" }}>{o.customer_name}</td>
                   <td style={{ padding: "7px 8px", whiteSpace: "nowrap" }}>{o.customer_phone}</td>
-                  <td style={{ padding: "7px 8px" }}>{it?.name}</td>
+                  <td style={{ padding: "7px 8px" }}>{lineItems.map((li, i) => <div key={i}>{li}</div>)}</td>
                   <td style={{ padding: "7px 8px", whiteSpace: "nowrap" }}>{fmtDate(o.pickup_date)} {fmtTime(o.pickup_time)}</td>
                   <td style={{ padding: "7px 8px", color: "#888" }}>{o.notes}</td>
                 </tr>;
