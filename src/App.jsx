@@ -315,6 +315,8 @@ function Orders({ user, orders, orderItemsMap, refresh, inv, refreshInv, items, 
   const [df, setDf] = useState("");
   const [showCancelled, setShowCancelled] = useState(false);
   const [detail, setDetail] = useState(null);
+  const [editing, setEditing] = useState(false);
+  const [editForm, setEditForm] = useState(null);
 
   const filtered = orders.filter(o => {
     if (!showCancelled && o.status === "cancelled") return false;
@@ -323,6 +325,50 @@ function Orders({ user, orders, orderItemsMap, refresh, inv, refreshInv, items, 
     if (search && !o.customer_name.toLowerCase().includes(search.toLowerCase()) && !String(o.invoice_number).includes(search)) return false;
     return true;
   }).sort((a, b) => b.invoice_number - a.invoice_number);
+
+  const openDetail = (o) => {
+    setDetail(o);
+    setEditing(false);
+    setEditForm(null);
+  };
+
+  const startEdit = (o) => {
+    const nameParts = o.customer_name.split(" ");
+    const lastName = nameParts.length > 1 ? nameParts[nameParts.length - 1] : "";
+    const firstName = nameParts.slice(0, nameParts.length > 1 ? -1 : 1).join(" ");
+    setEditForm({
+      firstName,
+      lastName,
+      customer_phone: o.customer_phone,
+      pickup_date: o.pickup_date,
+      pickup_time: o.pickup_time,
+      notes: o.notes || "",
+      location_id: o.location_id,
+      lineItems: [...(orderItemsMap[o.id] || []).map(li => ({ item_id: li.item_id, quantity: li.quantity }))],
+    });
+    setEditing(true);
+  };
+
+  const saveEdit = async () => {
+    const customerName = `${editForm.firstName.trim()} ${editForm.lastName.trim()}`.trim();
+    await supabase.from("orders").update({
+      customer_name: customerName,
+      customer_phone: editForm.customer_phone,
+      pickup_date: editForm.pickup_date,
+      pickup_time: editForm.pickup_time,
+      notes: editForm.notes,
+      location_id: editForm.location_id,
+    }).eq("id", detail.id);
+
+    await supabase.from("order_items").delete().eq("order_id", detail.id);
+    await supabase.from("order_items").insert(
+      editForm.lineItems.map(li => ({ order_id: detail.id, item_id: li.item_id, quantity: parseInt(li.quantity) || 1 }))
+    );
+
+    await refresh();
+    setEditing(false);
+    setDetail(null);
+  };
 
   const cancel = async id => {
     if (!confirm("Cancel this order?")) return;
@@ -337,57 +383,103 @@ function Orders({ user, orders, orderItemsMap, refresh, inv, refreshInv, items, 
     }
     await supabase.from("orders").update({ status: "cancelled" }).eq("id", id);
     await refresh();
+    setDetail(null);
   };
 
   const complete = async id => {
     await supabase.from("orders").update({ status: "completed" }).eq("id", id);
     await refresh();
+    setDetail(null);
   };
 
   return (
     <div>
       {detail && (
         <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 999, padding: "1rem" }}>
-          <div style={{ background: "#fff", borderRadius: 10, padding: 20, maxWidth: 420, width: "100%", border: "1px solid #e8e8e8", maxHeight: "90vh", overflowY: "auto" }}>
+          <div style={{ background: "#fff", borderRadius: 10, padding: 20, maxWidth: 440, width: "100%", border: "1px solid #e8e8e8", maxHeight: "90vh", overflowY: "auto" }}>
             <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 12 }}>
               <p style={{ fontWeight: 500 }}>Order #{detail.invoice_number}</p>
-              <button onClick={() => setDetail(null)} style={{ background: "none", border: "none", fontSize: 20, color: "#888", cursor: "pointer" }}>×</button>
+              <button onClick={() => { setDetail(null); setEditing(false); }} style={{ background: "none", border: "none", fontSize: 20, color: "#888", cursor: "pointer" }}>×</button>
             </div>
-            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
-              <tbody>
-                {[
-                  ["Customer", detail.customer_name],
-                  ["Phone", detail.customer_phone],
-                  ["Pickup", `${fmtDate(detail.pickup_date)} at ${fmtTime(detail.pickup_time)}`],
-                  ["Invoice", `#${detail.invoice_number}`],
-                  ["Location", LOCS.find(l => l.id === detail.location_id)?.name],
-                  ["Order placed", `${fmtDate(detail.order_date)} at ${fmtTime(detail.order_time)}`],
-                  ["Daily #", `#${detail.daily_number}`],
-                  ["Taken by", detail.taken_by],
-                  ["Status", detail.status],
-                  ...(detail.notes ? [["Notes", detail.notes]] : [])
-                ].map(([k, v]) => (
-                  <tr key={k}><td style={{ color: "#888", width: "35%", fontSize: 12, padding: "5px 0" }}>{k}</td><td style={{ padding: "5px 0" }}>{v}</td></tr>
-                ))}
-              </tbody>
-            </table>
-            <div style={{ marginTop: 10, borderTop: "0.5px solid #eee", paddingTop: 10 }}>
-              <p style={{ fontSize: 11, color: "#888", textTransform: "uppercase", letterSpacing: 1, marginBottom: 6 }}>Items</p>
-              {(orderItemsMap[detail.id] || []).map((li, i) => {
-                const item = items.find(x => x.id === li.item_id);
-                return <div key={i} style={{ display: "flex", justifyContent: "space-between", fontSize: 13, padding: "3px 0" }}>
-                  <span>{item?.name}</span>
-                  <span style={{ color: "#888" }}>x{li.quantity}</span>
-                </div>;
-              })}
-            </div>
-            <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
-              <button onClick={() => { setDetail(null); setTimeout(() => printReceipt(detail, orderItemsMap[detail.id] || [], items, LOCS), 200); }} style={{ flex: 1, background: "#8B1A2B", color: "#fff", border: "none", borderRadius: 8, padding: 9, fontSize: 13, cursor: "pointer" }}>Print receipt</button>
-              <button onClick={() => { setDetail(null); setTimeout(() => printLabels([detail], { [detail.id]: orderItemsMap[detail.id] || [] }, items, LOCS), 200); }} style={{ flex: 1, background: "#fff", color: "#8B1A2B", border: "1px solid #8B1A2B", borderRadius: 8, padding: 9, fontSize: 13, cursor: "pointer" }}>Print label</button>
-            </div>
+
+            {!editing ? (
+              <>
+                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+                  <tbody>
+                    {[
+                      ["Customer", detail.customer_name],
+                      ["Phone", detail.customer_phone],
+                      ["Pickup", `${fmtDate(detail.pickup_date)} at ${fmtTime(detail.pickup_time)}`],
+                      ["Invoice", `#${detail.invoice_number}`],
+                      ["Location", LOCS.find(l => l.id === detail.location_id)?.name],
+                      ["Order placed", `${fmtDate(detail.order_date)} at ${fmtTime(detail.order_time)}`],
+                      ["Daily #", `#${detail.daily_number}`],
+                      ["Taken by", detail.taken_by],
+                      ["Status", detail.status],
+                      ...(detail.notes ? [["Notes", detail.notes]] : [])
+                    ].map(([k, v]) => (
+                      <tr key={k}><td style={{ color: "#888", width: "35%", fontSize: 12, padding: "5px 0" }}>{k}</td><td style={{ padding: "5px 0" }}>{v}</td></tr>
+                    ))}
+                  </tbody>
+                </table>
+                <div style={{ marginTop: 10, borderTop: "0.5px solid #eee", paddingTop: 10 }}>
+                  <p style={{ fontSize: 11, color: "#888", textTransform: "uppercase", letterSpacing: 1, marginBottom: 6 }}>Items</p>
+                  {(orderItemsMap[detail.id] || []).map((li, i) => {
+                    const item = items.find(x => x.id === li.item_id);
+                    return <div key={i} style={{ display: "flex", justifyContent: "space-between", fontSize: 13, padding: "3px 0", borderBottom: "1px dotted #eee" }}>
+                      <span>{item?.name}</span>
+                      <span style={{ color: "#888" }}>x{li.quantity}</span>
+                    </div>;
+                  })}
+                </div>
+                <div style={{ display: "flex", gap: 8, marginTop: 12, flexWrap: "wrap" }}>
+                  <button onClick={() => startEdit(detail)} style={{ flex: 1, background: "#fff", color: "#555", border: "1px solid #ddd", borderRadius: 8, padding: 9, fontSize: 13, cursor: "pointer" }}>Edit</button>
+                  <button onClick={() => { setDetail(null); setTimeout(() => printReceipt(detail, orderItemsMap[detail.id] || [], items, LOCS), 200); }} style={{ flex: 1, background: "#8B1A2B", color: "#fff", border: "none", borderRadius: 8, padding: 9, fontSize: 13, cursor: "pointer" }}>Print receipt</button>
+                  <button onClick={() => { setDetail(null); setTimeout(() => printLabels([detail], { [detail.id]: orderItemsMap[detail.id] || [] }, items, LOCS), 200); }} style={{ flex: 1, background: "#fff", color: "#8B1A2B", border: "1px solid #8B1A2B", borderRadius: 8, padding: 9, fontSize: 13, cursor: "pointer" }}>Print label</button>
+                </div>
+                {detail.status === "pending" && (
+                  <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+                    <button onClick={() => complete(detail.id)} style={{ flex: 1, background: "#e8f5e9", color: "#2e7d32", border: "none", borderRadius: 8, padding: 9, fontSize: 13, cursor: "pointer" }}>Mark complete</button>
+                    <button onClick={() => cancel(detail.id)} style={{ flex: 1, background: "#ffebee", color: "#c62828", border: "none", borderRadius: 8, padding: 9, fontSize: 13, cursor: "pointer" }}>Cancel order</button>
+                  </div>
+                )}
+              </>
+            ) : (
+              <>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>
+                  <div><p style={{ fontSize: 12, color: "#666", marginBottom: 4 }}>First name</p><input value={editForm.firstName} onChange={e => setEditForm(f => ({ ...f, firstName: e.target.value }))} style={inp} /></div>
+                  <div><p style={{ fontSize: 12, color: "#666", marginBottom: 4 }}>Last name</p><input value={editForm.lastName} onChange={e => setEditForm(f => ({ ...f, lastName: e.target.value }))} style={inp} /></div>
+                </div>
+                <div style={{ marginBottom: 10 }}><p style={{ fontSize: 12, color: "#666", marginBottom: 4 }}>Phone</p><input value={editForm.customer_phone} onChange={e => setEditForm(f => ({ ...f, customer_phone: formatPhone(e.target.value) }))} style={inp} /></div>
+                {!user.location_id && <div style={{ marginBottom: 10 }}><p style={{ fontSize: 12, color: "#666", marginBottom: 4 }}>Location</p><select value={editForm.location_id} onChange={e => setEditForm(f => ({ ...f, location_id: e.target.value }))} style={inp}>{LOCS.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}</select></div>}
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>
+                  <div><p style={{ fontSize: 12, color: "#666", marginBottom: 4 }}>Pickup date</p><input type="date" value={editForm.pickup_date} onChange={e => setEditForm(f => ({ ...f, pickup_date: e.target.value }))} style={inp} /></div>
+                  <div><p style={{ fontSize: 12, color: "#666", marginBottom: 4 }}>Pickup time</p><input type="time" value={editForm.pickup_time} onChange={e => setEditForm(f => ({ ...f, pickup_time: e.target.value }))} style={inp} /></div>
+                </div>
+                <div style={{ marginBottom: 10 }}>
+                  <p style={{ fontSize: 12, color: "#666", marginBottom: 6 }}>Items</p>
+                  {editForm.lineItems.map((li, i) => (
+                    <div key={i} style={{ display: "flex", gap: 8, marginBottom: 6, alignItems: "center" }}>
+                      <select value={li.item_id} onChange={e => setEditForm(f => ({ ...f, lineItems: f.lineItems.map((x, idx) => idx === i ? { ...x, item_id: e.target.value } : x) }))} style={{ ...inp, flex: 3 }}>
+                        {items.filter(x => x.active !== false).map(x => <option key={x.id} value={x.id}>{x.name}</option>)}
+                      </select>
+                      <input type="number" min={1} value={li.quantity} onChange={e => setEditForm(f => ({ ...f, lineItems: f.lineItems.map((x, idx) => idx === i ? { ...x, quantity: e.target.value } : x) }))} style={{ ...inp, width: 60, flex: "none" }} />
+                      {editForm.lineItems.length > 1 && <button onClick={() => setEditForm(f => ({ ...f, lineItems: f.lineItems.filter((_, idx) => idx !== i) }))} style={{ background: "none", border: "none", color: "#c62828", fontSize: 18, cursor: "pointer", padding: "0 4px" }}>×</button>}
+                    </div>
+                  ))}
+                  <button onClick={() => setEditForm(f => ({ ...f, lineItems: [...f.lineItems, { item_id: items[0]?.id || "", quantity: 1 }] }))} style={{ fontSize: 12, color: "#8B1A2B", background: "none", border: "1px solid #8B1A2B", borderRadius: 7, padding: "5px 12px", cursor: "pointer" }}>+ Add item</button>
+                </div>
+                <div style={{ marginBottom: 12 }}><p style={{ fontSize: 12, color: "#666", marginBottom: 4 }}>Notes</p><textarea value={editForm.notes} onChange={e => setEditForm(f => ({ ...f, notes: e.target.value }))} style={{ ...inp, height: 58, resize: "vertical" }} /></div>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button onClick={saveEdit} style={{ flex: 1, background: "#8B1A2B", color: "#fff", border: "none", borderRadius: 8, padding: 9, fontSize: 13, cursor: "pointer" }}>Save changes</button>
+                  <button onClick={() => setEditing(false)} style={{ flex: 1, background: "#fff", color: "#555", border: "1px solid #ddd", borderRadius: 8, padding: 9, fontSize: 13, cursor: "pointer" }}>Cancel</button>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}
+
       <div style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap", alignItems: "center" }}>
         <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search name or invoice #" style={{ flex: 1, minWidth: 140, padding: "7px 10px", border: "1px solid #ddd", borderRadius: 7, fontSize: 13 }} />
         {!user.location_id && <select value={lf} onChange={e => setLf(e.target.value)} style={{ minWidth: 130, padding: "7px 10px", border: "1px solid #ddd", borderRadius: 7, fontSize: 13 }}><option value="">All locations</option>{LOCS.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}</select>}
@@ -397,6 +489,7 @@ function Orders({ user, orders, orderItemsMap, refresh, inv, refreshInv, items, 
           Show cancelled
         </label>
       </div>
+
       {filtered.length === 0 ? <p style={{ color: "#888", textAlign: "center", padding: "2rem" }}>No orders found.</p> :
         filtered.map(o => {
           const loc = LOCS.find(l => l.id === o.location_id);
@@ -407,7 +500,7 @@ function Orders({ user, orders, orderItemsMap, refresh, inv, refreshInv, items, 
             return `${li.quantity > 1 ? `${li.quantity}x ` : ""}${item?.name || ""}`;
           }).join(", ");
           return (
-            <div key={o.id} onClick={() => setDetail(o)} style={{ background: "#fff", border: "1px solid #e8e8e8", borderRadius: 10, padding: "10px 14px", marginBottom: 6, cursor: "pointer", display: "flex", alignItems: "center", gap: 12, opacity: o.status === "cancelled" ? 0.6 : 1 }}>
+            <div key={o.id} onClick={() => openDetail(o)} style={{ background: "#fff", border: "1px solid #e8e8e8", borderRadius: 10, padding: "10px 14px", marginBottom: 6, cursor: "pointer", display: "flex", alignItems: "center", gap: 12, opacity: o.status === "cancelled" ? 0.6 : 1 }}>
               <div style={{ textAlign: "center", minWidth: 40 }}>
                 <p style={{ fontSize: 20, fontWeight: 700, color: "#8B1A2B", lineHeight: 1, margin: 0 }}>#{o.daily_number}</p>
                 <p style={{ fontSize: 9, color: "#aaa", margin: 0 }}>#{o.invoice_number}</p>
@@ -419,12 +512,6 @@ function Orders({ user, orders, orderItemsMap, refresh, inv, refreshInv, items, 
               </div>
               <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 5 }}>
                 <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 5, background: sc.bg, color: sc.txt, fontWeight: 500 }}>{o.status}</span>
-                {can("manager") && o.status === "pending" && (
-                  <div style={{ display: "flex", gap: 4 }} onClick={e => e.stopPropagation()}>
-                    <button onClick={() => complete(o.id)} style={{ fontSize: 10, padding: "2px 7px", background: "#e8f5e9", color: "#2e7d32", border: "none", borderRadius: 5, cursor: "pointer" }}>Done</button>
-                    <button onClick={() => cancel(o.id)} style={{ fontSize: 10, padding: "2px 7px", background: "#ffebee", color: "#c62828", border: "none", borderRadius: 5, cursor: "pointer" }}>Cancel</button>
-                  </div>
-                )}
               </div>
             </div>
           );
