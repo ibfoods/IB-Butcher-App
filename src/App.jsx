@@ -52,7 +52,7 @@ function printReceipt(order, orderItems, items, locs) {
   const takenBy = takenByInitials(order.taken_by);
   const itemLines = orderItems.map(li => {
     const item = items.find(i => i.id === li.item_id);
-    return `<p class="val">${li.quantity > 1 ? `${li.quantity}x ` : ""}${item?.name || ""}</p>`;
+    return `<div style="padding:4px 0;border-bottom:1px dotted #ddd;"><span style="font-weight:bold;font-size:13px;">${item?.name || ""}</span><span style="float:right;color:#666;font-size:12px;">x${li.quantity}</span></div>`;
   }).join("");
 
   const html = `<!DOCTYPE html><html><head><title>Order #${order.invoice_number}</title><style>
