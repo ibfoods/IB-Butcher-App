@@ -178,6 +178,12 @@ function F({ label, children }) {
   return <div style={{ marginBottom: 12 }}><p style={{ fontSize: 12, color: "#666", marginBottom: 4 }}>{label}</p>{children}</div>;
 }
 
+function getInvKey(itemId, items, locationId) {
+  const item = items.find(i => i.id === itemId);
+  const effectiveId = item?.parent_id || itemId;
+  return `${locationId}_${effectiveId}`;
+}
+
 export default function App() {
   const [user, setUser] = useState(null);
   const [view, setView] = useState("login");
@@ -212,7 +218,12 @@ export default function App() {
     setOrders(o || []);
     setOrderItems(oi || []);
   }, []);
-  const refreshInv = useCallback(async () => { const { data } = await supabase.from("inventory").select("*"); const m = {}; (data || []).forEach(r => { m[`${r.location_id}_${r.item_id}`] = r.stock; }); setInv(m); }, []);
+  const refreshInv = useCallback(async () => {
+    const { data } = await supabase.from("inventory").select("*");
+    const m = {};
+    (data || []).forEach(r => { m[`${r.location_id}_${r.item_id}`] = r.stock; });
+    setInv(m);
+  }, []);
   const refreshItems = useCallback(async () => { const { data } = await supabase.from("items").select("*"); setItems(data || []); }, []);
   const refreshUsers = useCallback(async () => { const { data } = await supabase.from("users").select("*"); setUsers(data || []); }, []);
 
@@ -326,19 +337,14 @@ function Orders({ user, orders, orderItemsMap, refresh, inv, refreshInv, items, 
     return true;
   }).sort((a, b) => b.invoice_number - a.invoice_number);
 
-  const openDetail = (o) => {
-    setDetail(o);
-    setEditing(false);
-    setEditForm(null);
-  };
+  const openDetail = (o) => { setDetail(o); setEditing(false); setEditForm(null); };
 
   const startEdit = (o) => {
     const nameParts = o.customer_name.split(" ");
     const lastName = nameParts.length > 1 ? nameParts[nameParts.length - 1] : "";
     const firstName = nameParts.slice(0, nameParts.length > 1 ? -1 : 1).join(" ");
     setEditForm({
-      firstName,
-      lastName,
+      firstName, lastName,
       customer_phone: o.customer_phone,
       pickup_date: o.pickup_date,
       pickup_time: o.pickup_time,
@@ -359,12 +365,10 @@ function Orders({ user, orders, orderItemsMap, refresh, inv, refreshInv, items, 
       notes: editForm.notes,
       location_id: editForm.location_id,
     }).eq("id", detail.id);
-
     await supabase.from("order_items").delete().eq("order_id", detail.id);
     await supabase.from("order_items").insert(
       editForm.lineItems.map(li => ({ order_id: detail.id, item_id: li.item_id, quantity: parseInt(li.quantity) || 1 }))
     );
-
     await refresh();
     setEditing(false);
     setDetail(null);
@@ -376,7 +380,8 @@ function Orders({ user, orders, orderItemsMap, refresh, inv, refreshInv, items, 
     if (o) {
       const lineItems = orderItemsMap[id] || [];
       for (const li of lineItems) {
-        const { data: existing } = await supabase.from("inventory").select("*").eq("location_id", o.location_id).eq("item_id", li.item_id).maybeSingle();
+        const poolItemId = items.find(i => i.id === li.item_id)?.parent_id || li.item_id;
+        const { data: existing } = await supabase.from("inventory").select("*").eq("location_id", o.location_id).eq("item_id", poolItemId).maybeSingle();
         if (existing) await supabase.from("inventory").update({ stock: existing.stock + li.quantity }).eq("id", existing.id);
       }
       await refreshInv();
@@ -401,7 +406,6 @@ function Orders({ user, orders, orderItemsMap, refresh, inv, refreshInv, items, 
               <p style={{ fontWeight: 500 }}>Order #{detail.invoice_number}</p>
               <button onClick={() => { setDetail(null); setEditing(false); }} style={{ background: "none", border: "none", fontSize: 20, color: "#888", cursor: "pointer" }}>×</button>
             </div>
-
             {!editing ? (
               <>
                 <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
@@ -467,7 +471,7 @@ function Orders({ user, orders, orderItemsMap, refresh, inv, refreshInv, items, 
                       {editForm.lineItems.length > 1 && <button onClick={() => setEditForm(f => ({ ...f, lineItems: f.lineItems.filter((_, idx) => idx !== i) }))} style={{ background: "none", border: "none", color: "#c62828", fontSize: 18, cursor: "pointer", padding: "0 4px" }}>×</button>}
                     </div>
                   ))}
-                  <button onClick={() => setEditForm(f => ({ ...f, lineItems: [...f.lineItems, { item_id: items[0]?.id || "", quantity: 1 }] }))} style={{ fontSize: 12, color: "#8B1A2B", background: "none", border: "1px solid #8B1A2B", borderRadius: 7, padding: "5px 12px", cursor: "pointer" }}>+ Add item</button>
+                  <button onClick={() => setEditForm(f => ({ ...f, lineItems: [...f.lineItems, { item_id: items.filter(x => x.active !== false)[0]?.id || "", quantity: 1 }] }))} style={{ fontSize: 12, color: "#8B1A2B", background: "none", border: "1px solid #8B1A2B", borderRadius: 7, padding: "5px 12px", cursor: "pointer" }}>+ Add item</button>
                 </div>
                 <div style={{ marginBottom: 12 }}><p style={{ fontSize: 12, color: "#666", marginBottom: 4 }}>Notes</p><textarea value={editForm.notes} onChange={e => setEditForm(f => ({ ...f, notes: e.target.value }))} style={{ ...inp, height: 58, resize: "vertical" }} /></div>
                 <div style={{ display: "flex", gap: 8 }}>
@@ -523,11 +527,12 @@ function Orders({ user, orders, orderItemsMap, refresh, inv, refreshInv, items, 
 
 function NewOrder({ user, orders, refresh, inv, refreshInv, items, setView }) {
   const locs = user.location_id ? LOCS.filter(l => l.id === user.location_id) : LOCS;
+  const orderableItems = items.filter(i => i.active !== false);
   const [locationId, setLocationId] = useState(user.location_id || locs[0]?.id || "");
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
   const [phone, setPhone] = useState("");
-  const [lineItems, setLineItems] = useState([{ item_id: items[0]?.id || "", quantity: 1 }]);
+  const [lineItems, setLineItems] = useState([{ item_id: orderableItems[0]?.id || "", quantity: 1 }]);
   const [pickupDate, setPickupDate] = useState("");
   const [pickupTime, setPickupTime] = useState("12:00");
   const [notes, setNotes] = useState("");
@@ -535,9 +540,15 @@ function NewOrder({ user, orders, refresh, inv, refreshInv, items, setView }) {
   const [done, setDone] = useState(false);
 
   const handlePhone = e => setPhone(formatPhone(e.target.value));
-  const addLineItem = () => setLineItems(li => [...li, { item_id: items[0]?.id || "", quantity: 1 }]);
+  const addLineItem = () => setLineItems(li => [...li, { item_id: orderableItems[0]?.id || "", quantity: 1 }]);
   const removeLineItem = i => setLineItems(li => li.filter((_, idx) => idx !== i));
   const updateLineItem = (i, field, val) => setLineItems(li => li.map((x, idx) => idx === i ? { ...x, [field]: val } : x));
+
+  const getStockForItem = (itemId) => {
+    const item = items.find(i => i.id === itemId);
+    const poolId = item?.parent_id || itemId;
+    return inv[`${locationId}_${poolId}`] ?? null;
+  };
 
   const submit = async () => {
     if (!firstName.trim()) { setErr("First name required."); return; }
@@ -583,14 +594,21 @@ function NewOrder({ user, orders, refresh, inv, refreshInv, items, setView }) {
     }));
     await supabase.from("order_items").insert(orderItemRows);
 
+    const poolDeductions = {};
     for (const li of lineItems) {
-      const k = `${locationId}_${li.item_id}`;
-      const currentStock = inv[k] ?? null;
-      if (currentStock !== null) {
-        const { data: existing } = await supabase.from("inventory").select("*").eq("location_id", locationId).eq("item_id", li.item_id).maybeSingle();
-        if (existing) await supabase.from("inventory").update({ stock: Math.max(0, existing.stock - (parseInt(li.quantity) || 1)) }).eq("id", existing.id);
-      }
+      const item = items.find(i => i.id === li.item_id);
+      const poolId = item?.parent_id || li.item_id;
+      const key = `${locationId}_${poolId}`;
+      poolDeductions[key] = (poolDeductions[key] || 0) + (parseInt(li.quantity) || 1);
     }
+    for (const [key, qty] of Object.entries(poolDeductions)) {
+      const parts = key.split("_");
+      const locId = parts[0];
+      const itemId = parts.slice(1).join("_");
+      const { data: existing } = await supabase.from("inventory").select("*").eq("location_id", locId).eq("item_id", itemId).maybeSingle();
+      if (existing) await supabase.from("inventory").update({ stock: Math.max(0, existing.stock - qty) }).eq("id", existing.id);
+    }
+
     await refreshInv();
     await refresh();
     setDone(true);
@@ -610,15 +628,19 @@ function NewOrder({ user, orders, refresh, inv, refreshInv, items, setView }) {
       <F label="Phone number"><input value={phone} onChange={handlePhone} placeholder="(xxx) xxx-xxxx" style={inp} /></F>
       <div style={{ marginBottom: 12 }}>
         <p style={{ fontSize: 12, color: "#666", marginBottom: 6 }}>Items</p>
-        {lineItems.map((li, i) => (
-          <div key={i} style={{ display: "flex", gap: 8, marginBottom: 6, alignItems: "center" }}>
-            <select value={li.item_id} onChange={e => updateLineItem(i, "item_id", e.target.value)} style={{ ...inp, flex: 3 }}>
-              {items.filter(x => x.active !== false).map(x => <option key={x.id} value={x.id}>{x.name}</option>)}
-            </select>
-            <input type="number" min={1} value={li.quantity} onChange={e => updateLineItem(i, "quantity", e.target.value)} style={{ ...inp, width: 60, flex: "none" }} />
-            {lineItems.length > 1 && <button onClick={() => removeLineItem(i)} style={{ background: "none", border: "none", color: "#c62828", fontSize: 18, cursor: "pointer", padding: "0 4px", flexShrink: 0 }}>×</button>}
-          </div>
-        ))}
+        {lineItems.map((li, i) => {
+          const stock = getStockForItem(li.item_id);
+          return <div key={i} style={{ marginBottom: 8 }}>
+            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+              <select value={li.item_id} onChange={e => updateLineItem(i, "item_id", e.target.value)} style={{ ...inp, flex: 3 }}>
+                {orderableItems.map(x => <option key={x.id} value={x.id}>{x.name}</option>)}
+              </select>
+              <input type="number" min={1} value={li.quantity} onChange={e => updateLineItem(i, "quantity", e.target.value)} style={{ ...inp, width: 60, flex: "none" }} />
+              {lineItems.length > 1 && <button onClick={() => removeLineItem(i)} style={{ background: "none", border: "none", color: "#c62828", fontSize: 18, cursor: "pointer", padding: "0 4px", flexShrink: 0 }}>×</button>}
+            </div>
+            {stock !== null && <p style={{ fontSize: 11, marginTop: 2, marginLeft: 2, color: stock <= 0 ? "#c62828" : stock <= 5 ? "#e65100" : "#2e7d32" }}>{stock <= 0 ? "⚠ Out of stock" : stock <= 5 ? `⚠ Low stock (${stock} left in pool)` : `${stock} in pool`}</p>}
+          </div>;
+        })}
         <button onClick={addLineItem} style={{ fontSize: 12, color: "#8B1A2B", background: "none", border: "1px solid #8B1A2B", borderRadius: 7, padding: "5px 12px", cursor: "pointer", marginTop: 2 }}>+ Add item</button>
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
@@ -773,29 +795,61 @@ function Reports({ orders, orderItemsMap, items, user }) {
 
 function Inventory({ inv, refreshInv, items, user }) {
   const locs = user.location_id ? LOCS.filter(l => l.id === user.location_id) : LOCS;
-  const set = async (lid, iid, val) => {
+  const parentItems = items.filter(i => i.active !== false && !i.parent_id);
+  const childItems = items.filter(i => i.active !== false && i.parent_id);
+
+  const set = async (locId, itemId, val) => {
     const stock = Math.max(0, parseInt(val) || 0);
-    const { data: existing } = await supabase.from("inventory").select("*").eq("location_id", lid).eq("item_id", iid).maybeSingle();
+    const { data: existing } = await supabase.from("inventory").select("*").eq("location_id", locId).eq("item_id", itemId).maybeSingle();
     if (existing) await supabase.from("inventory").update({ stock }).eq("id", existing.id);
-    else await supabase.from("inventory").insert({ location_id: lid, item_id: iid, stock });
+    else await supabase.from("inventory").insert({ location_id: locId, item_id: itemId, stock });
     await refreshInv();
   };
+
   return (
     <div>
       <p style={{ fontSize: 15, fontWeight: 500, marginBottom: "1rem" }}>Inventory</p>
       {locs.map(loc => <div key={loc.id} style={{ marginBottom: "1.5rem" }}>
         <p style={{ fontSize: 13, fontWeight: 500, color: "#8B1A2B", marginBottom: 8 }}>{loc.name}</p>
-        {items.filter(i => i.active !== false).map(item => {
-          const stock = inv[`${loc.id}_${item.id}`] ?? 0;
-          return <div key={item.id} style={{ background: "#fff", border: "1px solid #e8e8e8", borderRadius: 10, padding: "9px 14px", marginBottom: 5, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
-            <span style={{ fontSize: 12, flex: 1 }}>{item.name}</span>
-            <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-              <button onClick={() => set(loc.id, item.id, stock - 1)} style={{ width: 26, height: 26, borderRadius: "50%", background: "none", border: "1px solid #ddd", fontSize: 16, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>−</button>
-              <input type="number" defaultValue={stock} key={`${loc.id}_${item.id}_${stock}`} min={0} onBlur={e => set(loc.id, item.id, e.target.value)} style={{ width: 50, textAlign: "center", padding: "5px", border: "1px solid #ddd", borderRadius: 7, fontSize: 13 }} />
-              <button onClick={() => set(loc.id, item.id, stock + 1)} style={{ width: 26, height: 26, borderRadius: "50%", background: "none", border: "1px solid #ddd", fontSize: 16, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>+</button>
-              <span style={{ fontSize: 11, minWidth: 60, color: stock <= 0 ? "#c62828" : stock <= 5 ? "#e65100" : "#2e7d32" }}>{stock <= 0 ? "Out of stock" : stock <= 5 ? `Low (${stock})` : `${stock} units`}</span>
-            </div>
-          </div>;
+        {parentItems.map(parent => {
+          const children = childItems.filter(c => c.parent_id === parent.id);
+          const parentStock = inv[`${loc.id}_${parent.id}`] ?? 0;
+
+          if (children.length > 0) {
+            return <div key={parent.id} style={{ background: "#fff", border: "1px solid #e8e8e8", borderRadius: 10, padding: "10px 14px", marginBottom: 8 }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+                <div style={{ flex: 1 }}>
+                  <p style={{ fontSize: 13, fontWeight: 600, margin: 0 }}>{parent.name}</p>
+                  <p style={{ fontSize: 11, color: "#888", margin: "2px 0 0" }}>Shared pool · covers plain & oven ready</p>
+                </div>
+                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <button onClick={() => set(loc.id, parent.id, parentStock - 1)} style={{ width: 26, height: 26, borderRadius: "50%", background: "none", border: "1px solid #ddd", fontSize: 16, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>−</button>
+                  <input type="number" defaultValue={parentStock} key={`${loc.id}_${parent.id}_${parentStock}`} min={0} onBlur={e => set(loc.id, parent.id, e.target.value)} style={{ width: 50, textAlign: "center", padding: "5px", border: "1px solid #ddd", borderRadius: 7, fontSize: 13 }} />
+                  <button onClick={() => set(loc.id, parent.id, parentStock + 1)} style={{ width: 26, height: 26, borderRadius: "50%", background: "none", border: "1px solid #ddd", fontSize: 16, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>+</button>
+                  <span style={{ fontSize: 11, minWidth: 60, color: parentStock <= 0 ? "#c62828" : parentStock <= 5 ? "#e65100" : "#2e7d32" }}>{parentStock <= 0 ? "Out of stock" : parentStock <= 5 ? `Low (${parentStock})` : `${parentStock} units`}</span>
+                </div>
+              </div>
+              <div style={{ marginTop: 8, paddingTop: 8, borderTop: "1px dashed #eee" }}>
+                {children.map(child => (
+                  <div key={child.id} style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: "#666", padding: "2px 0" }}>
+                    <span>↳ {child.name}</span>
+                    <span style={{ color: "#aaa", fontSize: 11 }}>draws from pool above</span>
+                  </div>
+                ))}
+              </div>
+            </div>;
+          } else {
+            const stock = inv[`${loc.id}_${parent.id}`] ?? 0;
+            return <div key={parent.id} style={{ background: "#fff", border: "1px solid #e8e8e8", borderRadius: 10, padding: "9px 14px", marginBottom: 5, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+              <span style={{ fontSize: 12, flex: 1 }}>{parent.name}</span>
+              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                <button onClick={() => set(loc.id, parent.id, stock - 1)} style={{ width: 26, height: 26, borderRadius: "50%", background: "none", border: "1px solid #ddd", fontSize: 16, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>−</button>
+                <input type="number" defaultValue={stock} key={`${loc.id}_${parent.id}_${stock}`} min={0} onBlur={e => set(loc.id, parent.id, e.target.value)} style={{ width: 50, textAlign: "center", padding: "5px", border: "1px solid #ddd", borderRadius: 7, fontSize: 13 }} />
+                <button onClick={() => set(loc.id, parent.id, stock + 1)} style={{ width: 26, height: 26, borderRadius: "50%", background: "none", border: "1px solid #ddd", fontSize: 16, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>+</button>
+                <span style={{ fontSize: 11, minWidth: 60, color: stock <= 0 ? "#c62828" : stock <= 5 ? "#e65100" : "#2e7d32" }}>{stock <= 0 ? "Out of stock" : stock <= 5 ? `Low (${stock})` : `${stock} units`}</span>
+              </div>
+            </div>;
+          }
         })}
       </div>)}
     </div>
@@ -809,10 +863,17 @@ function Admin({ users, refreshUsers, items, refreshItems, user, can }) {
   const [password, setPassword] = useState("");
   const [role, setRole] = useState("clerk");
   const [locationId, setLocationId] = useState("");
-  const [ni, setNi] = useState("");
+  const [ni, setNi] = useState({ name: "", parent_id: "" });
   const [ue, setUe] = useState("");
   const [ie, setIe] = useState("");
   const [editingUser, setEditingUser] = useState(null);
+  const [editingItem, setEditingItem] = useState(null);
+
+  const parentItems = items.filter(i => !i.parent_id);
+  const grouped = parentItems.map(parent => ({
+    parent,
+    children: items.filter(i => i.parent_id === parent.id)
+  }));
 
   const addU = async () => {
     if (!name || !username || !password) { setUe("All fields required."); return; }
@@ -829,23 +890,35 @@ function Admin({ users, refreshUsers, items, refreshItems, user, can }) {
     await refreshUsers();
   };
 
-  const saveEdit = async () => {
+  const saveEditUser = async () => {
     await supabase.from("users").update({
-      name: editingUser.name,
-      username: editingUser.username,
-      password: editingUser.password,
-      role: editingUser.role,
-      location_id: editingUser.location_id || null,
+      name: editingUser.name, username: editingUser.username, password: editingUser.password,
+      role: editingUser.role, location_id: editingUser.location_id || null,
     }).eq("id", editingUser.id);
     await refreshUsers();
     setEditingUser(null);
   };
 
   const addI = async () => {
-    if (!ni.trim()) { setIe("Name required."); return; }
-    await supabase.from("items").insert({ id: `item_${Date.now()}`, name: ni.trim(), active: true });
+    if (!ni.name.trim()) { setIe("Name required."); return; }
+    await supabase.from("items").insert({
+      id: `item_${Date.now()}`,
+      name: ni.name.trim(),
+      active: true,
+      parent_id: ni.parent_id || null
+    });
     await refreshItems();
-    setNi(""); setIe("");
+    setNi({ name: "", parent_id: "" }); setIe("");
+  };
+
+  const saveEditItem = async () => {
+    await supabase.from("items").update({
+      name: editingItem.name,
+      parent_id: editingItem.parent_id || null,
+      active: editingItem.active,
+    }).eq("id", editingItem.id);
+    await refreshItems();
+    setEditingItem(null);
   };
 
   const togI = async (id, active) => {
@@ -891,9 +964,7 @@ function Admin({ users, refreshUsers, items, refreshItems, user, can }) {
                   <input value={editingUser.username} onChange={e => setEditingUser(f => ({ ...f, username: e.target.value }))} placeholder="Username" style={inp} />
                   <input type="password" value={editingUser.password} onChange={e => setEditingUser(f => ({ ...f, password: e.target.value }))} placeholder="Password" style={inp} />
                   <select value={editingUser.role} onChange={e => setEditingUser(f => ({ ...f, role: e.target.value }))} style={inp}>
-                    <option value="clerk">Clerk</option>
-                    <option value="manager">Manager</option>
-                    <option value="admin">Admin</option>
+                    <option value="clerk">Clerk</option><option value="manager">Manager</option><option value="admin">Admin</option>
                     {can("master_admin") && <option value="master_admin">Master Admin</option>}
                   </select>
                   <select value={editingUser.location_id || ""} onChange={e => setEditingUser(f => ({ ...f, location_id: e.target.value || null }))} style={inp}>
@@ -902,7 +973,7 @@ function Admin({ users, refreshUsers, items, refreshItems, user, can }) {
                   </select>
                 </div>
                 <div style={{ display: "flex", gap: 8 }}>
-                  <button onClick={saveEdit} style={{ fontSize: 12, padding: "6px 14px", background: "#8B1A2B", color: "#fff", border: "none", borderRadius: 7, cursor: "pointer" }}>Save</button>
+                  <button onClick={saveEditUser} style={{ fontSize: 12, padding: "6px 14px", background: "#8B1A2B", color: "#fff", border: "none", borderRadius: 7, cursor: "pointer" }}>Save</button>
                   <button onClick={() => setEditingUser(null)} style={{ fontSize: 12, padding: "6px 14px", background: "none", border: "1px solid #ddd", borderRadius: 7, cursor: "pointer" }}>Cancel</button>
                 </div>
               </div>
@@ -925,16 +996,69 @@ function Admin({ users, refreshUsers, items, refreshItems, user, can }) {
       {tab === "items" && <div>
         <div style={{ background: "#fff", border: "1px solid #e8e8e8", borderRadius: 10, padding: "1rem", marginBottom: "1rem" }}>
           <p style={{ fontSize: 13, fontWeight: 500, marginBottom: 10 }}>Add item</p>
-          <div style={{ display: "flex", gap: 8 }}>
-            <input value={ni} onChange={e => setNi(e.target.value)} placeholder="Item name" style={{ ...inp, flex: 1 }} onKeyDown={e => e.key === "Enter" && addI()} />
-            <button onClick={addI} style={{ fontSize: 12, padding: "7px 14px", background: "#8B1A2B", color: "#fff", border: "none", borderRadius: 7, cursor: "pointer", whiteSpace: "nowrap" }}>Add item</button>
+          <div style={{ marginBottom: 8 }}>
+            <input value={ni.name} onChange={e => setNi(f => ({ ...f, name: e.target.value }))} placeholder="Item name" style={inp} onKeyDown={e => e.key === "Enter" && addI()} />
           </div>
-          {ie && <p style={{ color: "#c62828", fontSize: 12, marginTop: 6 }}>{ie}</p>}
+          <div style={{ marginBottom: 8 }}>
+            <p style={{ fontSize: 11, color: "#666", marginBottom: 4 }}>Parent item (optional — for shared inventory pools)</p>
+            <select value={ni.parent_id} onChange={e => setNi(f => ({ ...f, parent_id: e.target.value }))} style={inp}>
+              <option value="">No parent — standalone item</option>
+              {parentItems.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+            </select>
+          </div>
+          {ie && <p style={{ color: "#c62828", fontSize: 12, marginBottom: 8 }}>{ie}</p>}
+          <button onClick={addI} style={{ fontSize: 12, padding: "7px 14px", background: "#8B1A2B", color: "#fff", border: "none", borderRadius: 7, cursor: "pointer" }}>Add item</button>
         </div>
-        {items.map(item => <div key={item.id} style={{ background: "#fff", border: "1px solid #e8e8e8", borderRadius: 10, padding: "10px 14px", marginBottom: 5, display: "flex", alignItems: "center", justifyContent: "space-between", opacity: item.active === false ? 0.45 : 1 }}>
-          <span style={{ fontSize: 13 }}>{item.name}</span>
-          <button onClick={() => togI(item.id, item.active)} style={{ fontSize: 12, color: item.active === false ? "#2e7d32" : "#888", background: "none", border: "none", cursor: "pointer" }}>{item.active === false ? "Enable" : "Disable"}</button>
-        </div>)}
+
+        {grouped.map(({ parent, children }) => (
+          <div key={parent.id} style={{ background: "#fff", border: "1px solid #e8e8e8", borderRadius: 10, padding: "10px 14px", marginBottom: 8, opacity: parent.active === false ? 0.45 : 1 }}>
+            {editingItem?.id === parent.id ? (
+              <div>
+                <input value={editingItem.name} onChange={e => setEditingItem(f => ({ ...f, name: e.target.value }))} style={{ ...inp, marginBottom: 8 }} />
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button onClick={saveEditItem} style={{ fontSize: 12, padding: "6px 14px", background: "#8B1A2B", color: "#fff", border: "none", borderRadius: 7, cursor: "pointer" }}>Save</button>
+                  <button onClick={() => setEditingItem(null)} style={{ fontSize: 12, padding: "6px 14px", background: "none", border: "1px solid #ddd", borderRadius: 7, cursor: "pointer" }}>Cancel</button>
+                </div>
+              </div>
+            ) : (
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+                <div>
+                  <p style={{ fontSize: 13, fontWeight: children.length > 0 ? 600 : 400, margin: 0 }}>{parent.name}</p>
+                  {children.length > 0 && <p style={{ fontSize: 11, color: "#888", margin: "2px 0 0" }}>Shared pool</p>}
+                </div>
+                <div style={{ display: "flex", gap: 8 }}>
+                  <button onClick={() => setEditingItem({ ...parent })} style={{ fontSize: 12, color: "#8B1A2B", background: "none", border: "none", cursor: "pointer" }}>Edit</button>
+                  <button onClick={() => togI(parent.id, parent.active)} style={{ fontSize: 12, color: parent.active === false ? "#2e7d32" : "#888", background: "none", border: "none", cursor: "pointer" }}>{parent.active === false ? "Enable" : "Disable"}</button>
+                </div>
+              </div>
+            )}
+            {children.length > 0 && <div style={{ marginTop: 8, paddingTop: 8, borderTop: "1px dashed #eee" }}>
+              {children.map(child => (
+                <div key={child.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "3px 0", opacity: child.active === false ? 0.45 : 1 }}>
+                  {editingItem?.id === child.id ? (
+                    <div style={{ display: "flex", gap: 8, flex: 1 }}>
+                      <input value={editingItem.name} onChange={e => setEditingItem(f => ({ ...f, name: e.target.value }))} style={{ ...inp, flex: 1 }} />
+                      <select value={editingItem.parent_id || ""} onChange={e => setEditingItem(f => ({ ...f, parent_id: e.target.value || null }))} style={{ ...inp, flex: 1 }}>
+                        <option value="">No parent</option>
+                        {parentItems.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                      </select>
+                      <button onClick={saveEditItem} style={{ fontSize: 12, padding: "4px 10px", background: "#8B1A2B", color: "#fff", border: "none", borderRadius: 7, cursor: "pointer", whiteSpace: "nowrap" }}>Save</button>
+                      <button onClick={() => setEditingItem(null)} style={{ fontSize: 12, padding: "4px 10px", background: "none", border: "1px solid #ddd", borderRadius: 7, cursor: "pointer" }}>Cancel</button>
+                    </div>
+                  ) : (
+                    <>
+                      <span style={{ fontSize: 12, color: "#555" }}>↳ {child.name}</span>
+                      <div style={{ display: "flex", gap: 8 }}>
+                        <button onClick={() => setEditingItem({ ...child })} style={{ fontSize: 11, color: "#8B1A2B", background: "none", border: "none", cursor: "pointer" }}>Edit</button>
+                        <button onClick={() => togI(child.id, child.active)} style={{ fontSize: 11, color: child.active === false ? "#2e7d32" : "#888", background: "none", border: "none", cursor: "pointer" }}>{child.active === false ? "Enable" : "Disable"}</button>
+                      </div>
+                    </>
+                  )}
+                </div>
+              ))}
+            </div>}
+          </div>
+        ))}
       </div>}
     </div>
   );
