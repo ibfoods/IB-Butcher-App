@@ -96,13 +96,18 @@ function printReceipt(order, orderItems, items, locs) {
 
 function labelHTML(orders, orderItemsMap, items, locs) {
   const logoUrl = window.location.origin + LOGO_URL;
-  const labelsHtml = orders.map(o => {
+  // One label per item line — same order info, different item name per label
+  const allLabels = [];
+  orders.forEach(o => {
     const loc = locs.find(l => l.id === o.location_id);
     const lineItems = (orderItemsMap[o.id] || []);
-    const itemLines = lineItems.map(li => {
+    lineItems.forEach(li => {
       const item = items.find(i => i.id === li.item_id);
-      return `<div class="item">${li.quantity > 1 ? `${li.quantity}x ` : ""}${item?.name || ""}</div>`;
-    }).join("");
+      const itemLabel = `${li.quantity > 1 ? `${li.quantity}x ` : ""}${item?.name || ""}`;
+      allLabels.push({ o, loc, itemLabel });
+    });
+  });
+  const labelsHtml = allLabels.map(({ o, loc, itemLabel }) => {
     return `
       <div class="label">
         <div class="top-row">
@@ -113,7 +118,7 @@ function labelHTML(orders, orderItemsMap, items, locs) {
           <div class="daily-num">${o.daily_number}</div>
         </div>
         <div class="customer">${o.customer_name}</div>
-        ${itemLines}
+        <div class="item">${itemLabel}</div>
         <div class="bottom-row">
           <div class="details">
             <div class="detail-line"><span class="lbl">Pickup</span> ${fmtDate(o.pickup_date)} at ${fmtTime(o.pickup_time)}</div>
@@ -268,7 +273,7 @@ function Login({ users, onLogin }) {
     <div style={{ display: "flex", alignItems: "center", justifyContent: "center", minHeight: "100vh", padding: "2rem", background: "#f5f5f5" }}>
       <div style={{ width: "100%", maxWidth: 320 }}>
         <div style={{ textAlign: "center", marginBottom: "1.5rem" }}>
-          <div style={{ width: 64, height: 64, borderRadius: "50%", background: "#8B1A2B", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 10px", fontSize: 20, fontWeight: 700, color: "#fff" }}>IB</div>
+          <img src="/logo.jpg" alt="Iavarone Bros." style={{ width: 100, height: 100, objectFit: "contain", display: "block", margin: "0 auto 10px" }} />
           <p style={{ fontSize: 17, fontWeight: 500 }}>Iavarone Bros.</p>
           <p style={{ color: "#888", fontSize: 12 }}>Butcher Order System</p>
         </div>
@@ -397,6 +402,14 @@ function Orders({ user, orders, orderItemsMap, refresh, inv, refreshInv, items, 
     setDetail(null);
   };
 
+  const deleteOrder = async id => {
+    if (!confirm("Permanently delete this order? This cannot be undone.")) return;
+    await supabase.from("order_items").delete().eq("order_id", id);
+    await supabase.from("orders").delete().eq("id", id);
+    await refresh();
+    setDetail(null);
+  };
+
   return (
     <div>
       {detail && (
@@ -447,6 +460,11 @@ function Orders({ user, orders, orderItemsMap, refresh, inv, refreshInv, items, 
                     <button onClick={() => cancel(detail.id)} style={{ flex: 1, background: "#ffebee", color: "#c62828", border: "none", borderRadius: 8, padding: 9, fontSize: 13, cursor: "pointer" }}>Cancel order</button>
                   </div>
                 )}
+                {can("manager") && (
+                  <div style={{ marginTop: 8, paddingTop: 8, borderTop: "1px dashed #eee" }}>
+                    <button onClick={() => deleteOrder(detail.id)} style={{ width: "100%", background: "none", color: "#c62828", border: "1px solid #c62828", borderRadius: 8, padding: 9, fontSize: 13, cursor: "pointer" }}>🗑 Delete order (managers only)</button>
+                  </div>
+                )}
               </>
             ) : (
               <>
@@ -492,6 +510,21 @@ function Orders({ user, orders, orderItemsMap, refresh, inv, refreshInv, items, 
           <input type="checkbox" checked={showCancelled} onChange={e => setShowCancelled(e.target.checked)} />
           Show cancelled
         </label>
+        <button
+          onClick={() => {
+            const printDate = df || tod();
+            const dayOrders = orders.filter(o =>
+              o.pickup_date === printDate &&
+              o.status !== "cancelled" &&
+              (!lf || o.location_id === lf)
+            ).sort((a, b) => a.daily_number - b.daily_number);
+            if (dayOrders.length === 0) { alert(`No orders found for ${fmtDate(printDate)}.`); return; }
+            printLabels(dayOrders, orderItemsMap, items, LOCS);
+          }}
+          style={{ whiteSpace: "nowrap", padding: "7px 12px", background: "#8B1A2B", color: "#fff", border: "none", borderRadius: 7, fontSize: 13, cursor: "pointer" }}
+        >
+          Print all labels{df ? ` (${fmtDate(df)})` : " (today)"}
+        </button>
       </div>
 
       {filtered.length === 0 ? <p style={{ color: "#888", textAlign: "center", padding: "2rem" }}>No orders found.</p> :
