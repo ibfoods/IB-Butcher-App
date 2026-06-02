@@ -113,22 +113,34 @@ function labelHTML(orders, orderItemsMap, items, locs) {
         <div class="top-row">
           <div class="logo-area">
             <img src="${logoUrl}" class="logo" />
-            <span class="website">www.ibfoods.com</span>
+            <span class="website">ibfoods.com</span>
           </div>
-          <div class="daily-num">${o.daily_number}</div>
+          <div class="customer-block">
+            <div class="customer-lbl">CUSTOMER</div>
+            <div class="customer">${o.customer_name}</div>
+          </div>
+          <div class="order-box">
+            <div class="order-lbl">ORDER</div>
+            <div class="daily-num">${o.daily_number}</div>
+          </div>
         </div>
-        <div class="customer">${o.customer_name}</div>
-        <div class="item">${itemLabel}</div>
-        <div class="bottom-row">
-          <div class="details">
-            <div class="detail-line"><span class="lbl">Pickup</span> ${fmtDate(o.pickup_date)} at ${fmtTime(o.pickup_time)}</div>
-            <div class="detail-line"><span class="lbl">Invoice</span> #${o.invoice_number}</div>
-            <div class="detail-line"><span class="lbl">Location</span> ${loc?.name || ""}</div>
-            ${o.notes ? `<div class="detail-line notes"><span class="lbl">Notes</span> ${o.notes}</div>` : ""}
+        <div class="middle-band">
+          <div class="item-lbl">ITEM</div>
+          <div class="item">${itemLabel}</div>
+          ${o.notes ? `<div class="notes">${o.notes}</div>` : ""}
+        </div>
+        <div class="footer">
+          <div class="footer-col">
+            <div class="footer-lbl">PICKUP</div>
+            <div class="footer-val">${fmtDate(o.pickup_date)} · ${fmtTime(o.pickup_time)}</div>
           </div>
-          <div class="qr-placeholder">
-            <div class="qr-box"></div>
-            <div class="qr-text">Scan for<br/>instructions</div>
+          <div class="footer-col">
+            <div class="footer-lbl">INVOICE</div>
+            <div class="footer-val">#${o.invoice_number}</div>
+          </div>
+          <div class="footer-col">
+            <div class="footer-lbl">LOCATION</div>
+            <div class="footer-val">${loc?.name || ""}</div>
           </div>
         </div>
       </div>
@@ -139,23 +151,25 @@ function labelHTML(orders, orderItemsMap, items, locs) {
     @page { size: 4in 2.5in landscape; margin: 0; }
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body { font-family: Arial, sans-serif; background: white; }
-    .label { width: 4in; height: 2.5in; padding: 0.12in 0.15in; display: flex; flex-direction: column; justify-content: space-between; overflow: hidden; }
+    .label { width: 4in; height: 2.5in; padding: 0.1in 0.13in; display: flex; flex-direction: column; justify-content: space-between; overflow: hidden; }
     .page-break { page-break-after: always; }
-    .top-row { display: flex; justify-content: space-between; align-items: flex-start; }
-    .logo-area { display: flex; flex-direction: column; align-items: flex-start; }
-    .logo { width: 0.55in; height: 0.55in; object-fit: contain; }
-    .website { font-size: 6pt; color: #666; margin-top: 2px; }
-    .daily-num { font-size: 52pt; font-weight: 900; line-height: 1; color: #000; text-align: right; }
-    .customer { font-size: 16pt; font-weight: 700; line-height: 1.1; margin: 0.03in 0 0.01in; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-    .item { font-size: 8.5pt; font-weight: 500; color: #333; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-    .bottom-row { display: flex; justify-content: space-between; align-items: flex-end; }
-    .details { flex: 1; }
-    .detail-line { font-size: 7.5pt; line-height: 1.4; }
-    .lbl { font-weight: 700; text-transform: uppercase; font-size: 6pt; letter-spacing: 0.5px; }
-    .notes { color: #444; margin-top: 2px; }
-    .qr-placeholder { display: flex; flex-direction: column; align-items: center; margin-left: 0.1in; }
-    .qr-box { width: 0.6in; height: 0.6in; border: 1.5px dashed #999; }
-    .qr-text { font-size: 5.5pt; color: #999; text-align: center; margin-top: 2px; line-height: 1.3; }
+    .top-row { display: flex; justify-content: space-between; align-items: center; }
+    .logo-area { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; flex-shrink: 0; }
+    .logo { width: 0.48in; height: 0.48in; object-fit: contain; }
+    .website { font-size: 5.5pt; color: #666; }
+    .customer-block { flex: 1; text-align: center; padding: 0 0.1in; }
+    .customer-lbl { font-size: 6.5pt; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; color: #555; }
+    .customer { font-size: 16pt; font-weight: 900; line-height: 1.1; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+    .order-box { border: 2.5px solid #000; padding: 2px 8px; text-align: center; flex-shrink: 0; }
+    .order-lbl { font-size: 6pt; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; color: #444; }
+    .daily-num { font-size: 36pt; font-weight: 900; line-height: 1; color: #000; }
+    .middle-band { border-top: 1.5px solid #000; border-bottom: 1.5px solid #000; padding: 0.04in 0; flex: 1; display: flex; flex-direction: column; justify-content: center; }
+    .item-lbl { font-size: 6.5pt; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; color: #555; margin-bottom: 2px; }
+    .item { font-size: 15pt; font-weight: 900; line-height: 1.1; overflow: hidden; }
+    .notes { font-size: 8pt; font-style: italic; color: #333; margin-top: 3px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+    .footer { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0 0.08in; padding-top: 0.05in; }
+    .footer-lbl { font-size: 6.5pt; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: #555; }
+    .footer-val { font-size: 9pt; font-weight: 600; margin-top: 1px; }
   </style></head><body>
     ${labelsHtml}
     <script>
