@@ -148,7 +148,8 @@ function labelHTML(orders, orderItemsMap, items, locs) {
   }).join('<div class="page-break"></div>');
 
   return `<!DOCTYPE html><html><head><title>Labels</title><style>
-    @page { size: 4in 2.5in landscape; margin: 0; }
+    @page { size: 4in 2.5in landscape; margin: 0mm; }
+    @media print { html, body { margin: 0 !important; padding: 0 !important; } }
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body { font-family: Arial, sans-serif; background: white; }
     .label { width: 4in; height: 2.5in; padding: 0.1in 0.13in; display: flex; flex-direction: column; justify-content: space-between; overflow: hidden; }
