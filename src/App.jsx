@@ -160,13 +160,13 @@ function labelHTML(orders, orderItemsMap, items, locs) {
     .website { font-size: 6pt; color: #666; }
     .customer-block { flex: 1; text-align: center; padding: 0 0.1in; }
     .customer-lbl { font-size: 7pt; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; color: #555; }
-    .customer { font-size: 17pt; font-weight: 900; line-height: 1.1; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-    .order-box { border: 2.5px solid #000; padding: 2px 8px; text-align: center; flex-shrink: 0; }
-    .order-lbl { font-size: 7pt; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; color: #444; }
-    .daily-num { font-size: 38pt; font-weight: 900; line-height: 1; color: #000; }
+    .customer { font-size: 15pt; font-weight: 900; line-height: 1.1; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+    .order-box { border: 2.5px solid #000; padding: 2px 10px; min-width: 0.7in; text-align: center; flex-shrink: 0; }
+    .order-lbl { font-size: 6pt; white-space: nowrap; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; color: #444; }
+    .daily-num { font-size: 32pt; font-weight: 900; line-height: 1; color: #000; }
     .middle-band { border-top: 1.5px solid #000; border-bottom: 1.5px solid #000; padding: 0.04in 0; flex: 1; display: flex; flex-direction: column; justify-content: center; }
     .item-lbl { font-size: 7pt; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; color: #555; margin-bottom: 2px; }
-    .item { font-size: 16pt; font-weight: 900; line-height: 1.1; overflow: hidden; }
+    .item { font-size: 13pt; font-weight: 900; line-height: 1.1; overflow: hidden; }
     .notes { font-size: 9pt; font-style: italic; color: #333; margin-top: 3px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
     .footer { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0 0.08in; padding-top: 0.05in; }
     .footer-lbl { font-size: 7pt; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: #555; }
