@@ -167,7 +167,7 @@ function labelHTML(orders, orderItemsMap, items, locs) {
     .middle-band { border-top: 1.5px solid #000; border-bottom: 1.5px solid #000; padding: 0.04in 0; flex: 1; display: flex; flex-direction: column; justify-content: center; }
     .item-lbl { font-size: 7pt; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; color: #555; margin-bottom: 2px; }
     .item { font-size: 13pt; font-weight: 900; line-height: 1.1; overflow: hidden; }
-    .notes { font-size: 9pt; font-style: italic; color: #333; margin-top: 3px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+    .notes { font-size: 9pt; font-weight: 700; color: #000; margin-top: 3px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
     .footer { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0 0.08in; padding-top: 0.05in; }
     .footer-lbl { font-size: 7pt; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: #555; }
     .footer-val { font-size: 8.5pt; font-weight: 600; margin-top: 1px; white-space: nowrap; }
