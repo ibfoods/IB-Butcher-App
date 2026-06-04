@@ -132,7 +132,7 @@ function labelHTML(orders, orderItemsMap, items, locs) {
         <div class="footer">
           <div class="footer-col">
             <div class="footer-lbl">PICKUP</div>
-            <div class="footer-val">${fmtDate(o.pickup_date)} · ${fmtTime(o.pickup_time)}</div>
+            <div class="footer-val">${fmtDate(o.pickup_date)} ${fmtTime(o.pickup_time)}</div>
           </div>
           <div class="footer-col">
             <div class="footer-lbl">INVOICE</div>
@@ -170,7 +170,7 @@ function labelHTML(orders, orderItemsMap, items, locs) {
     .notes { font-size: 9pt; font-style: italic; color: #333; margin-top: 3px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
     .footer { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0 0.08in; padding-top: 0.05in; }
     .footer-lbl { font-size: 7pt; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: #555; }
-    .footer-val { font-size: 9.5pt; font-weight: 600; margin-top: 1px; }
+    .footer-val { font-size: 8.5pt; font-weight: 600; margin-top: 1px; white-space: nowrap; }
   </style></head><body>
     ${labelsHtml}
     <script>
