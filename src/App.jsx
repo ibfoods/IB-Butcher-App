@@ -149,10 +149,10 @@ function labelHTML(orders, orderItemsMap, items, locs) {
 
   return `<!DOCTYPE html><html><head><title>Labels</title><style>
     @page { size: 4in 2.5in landscape; margin: 0mm; }
-    @media print { html, body { margin: 0 !important; padding: 0 !important; } }
+    @media print { html, body { margin: 0 !important; padding: 0 !important; } html { zoom: 1; -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body { font-family: Arial, sans-serif; background: white; }
-    .label { width: 4in; height: 2.5in; padding: 0.1in 0.13in; display: flex; flex-direction: column; justify-content: space-between; overflow: hidden; }
+    .label { width: 100%; height: 100vh; max-width: 4in; max-height: 2.5in; padding: 0.1in 0.13in; display: flex; flex-direction: column; justify-content: space-between; overflow: hidden; }
     .page-break { page-break-after: always; }
     .top-row { display: flex; justify-content: space-between; align-items: center; }
     .logo-area { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; flex-shrink: 0; }
