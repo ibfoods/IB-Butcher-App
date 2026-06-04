@@ -148,10 +148,10 @@ function labelHTML(orders, orderItemsMap, items, locs) {
   }).join('<div class="page-break"></div>');
 
   return `<!DOCTYPE html><html><head><title>Labels</title><style>
-    @page { size: 4.25in 2.75in portrait; margin: 0; }
+    @page { size: 4in 2.5in portrait; margin: 0; }
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body { font-family: Arial, sans-serif; background: white; }
-    .label { width: 4.25in; height: 2.75in; padding: 0.1in 0.13in; display: flex; flex-direction: column; justify-content: space-between; overflow: hidden; }
+    .label { width: 4in; height: 2.5in; padding: 0.1in 0.13in; display: flex; flex-direction: column; justify-content: space-between; overflow: hidden; }
     .page-break { page-break-after: always; }
     .top-row { display: flex; justify-content: space-between; align-items: center; }
     .logo-area { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; flex-shrink: 0; }
