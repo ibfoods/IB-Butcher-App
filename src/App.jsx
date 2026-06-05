@@ -580,12 +580,19 @@ function NewOrder({ user, orders, refresh, inv, refreshInv, items, setView }) {
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
   const [phone, setPhone] = useState("");
+  const [email, setEmail] = useState("");
   const [lineItems, setLineItems] = useState([{ item_id: orderableItems[0]?.id || "", quantity: 1 }]);
   const [pickupDate, setPickupDate] = useState("");
   const [pickupTime, setPickupTime] = useState("12:00");
   const [notes, setNotes] = useState("");
   const [err, setErr] = useState("");
-  const [done, setDone] = useState(false);
+  // confirmation screen state
+  const [confirming, setConfirming] = useState(false);
+  const [placedOrder, setPlacedOrder] = useState(null);
+  const [placedOrderItems, setPlacedOrderItems] = useState([]);
+  const [confirmEmail, setConfirmEmail] = useState("");
+  const [emailSending, setEmailSending] = useState(false);
+  const [emailStatus, setEmailStatus] = useState(""); // "sent" | "error" | ""
 
   const handlePhone = e => setPhone(formatPhone(e.target.value));
   const addLineItem = () => setLineItems(li => [...li, { item_id: orderableItems[0]?.id || "", quantity: 1 }]);
@@ -659,11 +666,113 @@ function NewOrder({ user, orders, refresh, inv, refreshInv, items, setView }) {
 
     await refreshInv();
     await refresh();
-    setDone(true);
-    setTimeout(() => { printReceipt(newOrder, orderItemRows, items, LOCS); setView("orders"); }, 300);
+
+    // Go to confirmation screen instead of auto-printing
+    setPlacedOrder(newOrder);
+    setPlacedOrderItems(orderItemRows);
+    setConfirmEmail(email);
+    setConfirming(true);
   };
 
-  if (done) return <div style={{ textAlign: "center", padding: "3rem" }}><p style={{ fontSize: 32 }}>✓</p><p style={{ fontWeight: 500, marginTop: 8 }}>Order placed!</p></div>;
+  const sendEmail = async (toAddr) => {
+    if (!toAddr || !toAddr.includes("@")) { setEmailStatus("error_addr"); return; }
+    setEmailSending(true);
+    setEmailStatus("");
+    const loc = LOCS.find(l => l.id === placedOrder.location_id);
+    try {
+      const res = await fetch("/api/send-receipt", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          to: toAddr,
+          locationId: placedOrder.location_id,
+          order: placedOrder,
+          orderItems: placedOrderItems,
+          items,
+          loc,
+        }),
+      });
+      if (res.ok) { setEmailStatus("sent"); }
+      else { setEmailStatus("error"); }
+    } catch {
+      setEmailStatus("error");
+    }
+    setEmailSending(false);
+  };
+
+  // Confirmation screen
+  if (confirming && placedOrder) {
+    const loc = LOCS.find(l => l.id === placedOrder.location_id);
+    const hasEmail = !!confirmEmail;
+    return (
+      <div style={{ maxWidth: 420 }}>
+        {/* Order confirmed header */}
+        <div style={{ background: "#fff", border: "1px solid #e8e8e8", borderRadius: 10, padding: "20px", marginBottom: 16, textAlign: "center" }}>
+          <p style={{ fontSize: 32, margin: "0 0 6px" }}>✓</p>
+          <p style={{ fontSize: 16, fontWeight: 600, margin: "0 0 4px" }}>Order Confirmed</p>
+          <p style={{ fontSize: 28, fontWeight: 700, color: "#8B1A2B", margin: "4px 0 2px" }}>#{placedOrder.daily_number}</p>
+          <p style={{ fontSize: 12, color: "#888", margin: 0 }}>Invoice #{placedOrder.invoice_number} · {placedOrder.customer_name}</p>
+          <p style={{ fontSize: 12, color: "#888", margin: "2px 0 0" }}>Pickup: {fmtDate(placedOrder.pickup_date)} at {fmtTime(placedOrder.pickup_time)}</p>
+        </div>
+
+        {/* Receipt options */}
+        <div style={{ background: "#fff", border: "1px solid #e8e8e8", borderRadius: 10, padding: "16px", marginBottom: 16 }}>
+          <p style={{ fontSize: 12, color: "#666", textTransform: "uppercase", letterSpacing: 1, marginBottom: 12, marginTop: 0 }}>Receipt Options</p>
+
+          {/* Print */}
+          <button
+            onClick={() => printReceipt(placedOrder, placedOrderItems, items, LOCS)}
+            style={{ width: "100%", background: "#fff", color: "#333", border: "1px solid #ddd", borderRadius: 8, padding: "11px 14px", fontSize: 14, cursor: "pointer", marginBottom: 8, display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}
+          >
+            🖨️ Print Receipt
+          </button>
+
+          {/* Email */}
+          <div style={{ border: "1px solid #ddd", borderRadius: 8, padding: "12px", marginBottom: 8 }}>
+            <p style={{ fontSize: 13, margin: "0 0 8px", display: "flex", alignItems: "center", gap: 6 }}>📧 Email Receipt</p>
+            <div style={{ display: "flex", gap: 8 }}>
+              <input
+                type="email"
+                value={confirmEmail}
+                onChange={e => { setConfirmEmail(e.target.value); setEmailStatus(""); }}
+                placeholder="customer@email.com"
+                style={{ ...inp, flex: 1 }}
+              />
+              <button
+                onClick={() => sendEmail(confirmEmail)}
+                disabled={emailSending}
+                style={{ padding: "7px 14px", background: "#8B1A2B", color: "#fff", border: "none", borderRadius: 7, fontSize: 13, cursor: emailSending ? "default" : "pointer", opacity: emailSending ? 0.7 : 1, whiteSpace: "nowrap" }}
+              >
+                {emailSending ? "Sending…" : "Send"}
+              </button>
+            </div>
+            {emailStatus === "sent" && <p style={{ fontSize: 12, color: "#2e7d32", margin: "6px 0 0" }}>✓ Receipt sent to {confirmEmail}</p>}
+            {emailStatus === "error" && <p style={{ fontSize: 12, color: "#c62828", margin: "6px 0 0" }}>Failed to send. Check the email address and try again.</p>}
+            {emailStatus === "error_addr" && <p style={{ fontSize: 12, color: "#c62828", margin: "6px 0 0" }}>Please enter a valid email address.</p>}
+          </div>
+
+          {/* Both */}
+          {hasEmail && emailStatus !== "sent" && (
+            <button
+              onClick={async () => { printReceipt(placedOrder, placedOrderItems, items, LOCS); await sendEmail(confirmEmail); }}
+              disabled={emailSending}
+              style={{ width: "100%", background: "#f5f5f5", color: "#333", border: "1px solid #ddd", borderRadius: 8, padding: "11px 14px", fontSize: 14, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}
+            >
+              🖨️📧 Print & Email
+            </button>
+          )}
+        </div>
+
+        {/* Done button */}
+        <button
+          onClick={() => setView("orders")}
+          style={{ width: "100%", background: "#8B1A2B", color: "#fff", border: "none", borderRadius: 8, padding: 11, fontSize: 14, fontWeight: 500, cursor: "pointer" }}
+        >
+          Done — Back to Orders
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div style={{ maxWidth: 520 }}>
@@ -674,6 +783,7 @@ function NewOrder({ user, orders, refresh, inv, refreshInv, items, setView }) {
         <F label="Last name"><input value={lastName} onChange={e => setLastName(e.target.value)} placeholder="Last name" style={inp} /></F>
       </div>
       <F label="Phone number"><input value={phone} onChange={handlePhone} placeholder="(xxx) xxx-xxxx" style={inp} /></F>
+      <F label="Customer email (optional)"><input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="customer@email.com" style={inp} /></F>
       <div style={{ marginBottom: 12 }}>
         <p style={{ fontSize: 12, color: "#666", marginBottom: 6 }}>Items</p>
         {lineItems.map((li, i) => {
@@ -697,7 +807,7 @@ function NewOrder({ user, orders, refresh, inv, refreshInv, items, setView }) {
       </div>
       <F label="Notes (optional)"><textarea value={notes} onChange={e => setNotes(e.target.value)} style={{ ...inp, height: 58, resize: "vertical" }} placeholder="Special instructions..." /></F>
       {err && <p style={{ color: "#c62828", fontSize: 12, marginBottom: 10 }}>{err}</p>}
-      <button onClick={submit} style={{ width: "100%", background: "#8B1A2B", color: "#fff", border: "none", borderRadius: 8, padding: 11, fontSize: 14, fontWeight: 500, cursor: "pointer" }}>Place order & print receipt</button>
+      <button onClick={submit} style={{ width: "100%", background: "#8B1A2B", color: "#fff", border: "none", borderRadius: 8, padding: 11, fontSize: 14, fontWeight: 500, cursor: "pointer" }}>Place order →</button>
     </div>
   );
 }
