@@ -88,9 +88,10 @@ export default async function handler(req, res) {
 
   try {
     const transporter = nodemailer.createTransport({
-      host: "smtp.gmail.com",
-      port: 465,
-      secure: true,
+      host: "smtp-relay.gmail.com",
+      port: 587,
+      secure: false,
+      requireTLS: true,
       auth: { user: creds.user, pass: creds.pass },
     });
 
