@@ -366,6 +366,7 @@ function Orders({ user, orders, orderItemsMap, refresh, inv, refreshInv, items, 
     setEditForm({
       firstName, lastName,
       customer_phone: o.customer_phone,
+      customer_email: o.customer_email || "",
       pickup_date: o.pickup_date,
       pickup_time: o.pickup_time,
       notes: o.notes || "",
@@ -380,6 +381,7 @@ function Orders({ user, orders, orderItemsMap, refresh, inv, refreshInv, items, 
     await supabase.from("orders").update({
       customer_name: customerName,
       customer_phone: editForm.customer_phone,
+      customer_email: editForm.customer_email || null,
       pickup_date: editForm.pickup_date,
       pickup_time: editForm.pickup_time,
       notes: editForm.notes,
@@ -441,6 +443,7 @@ function Orders({ user, orders, orderItemsMap, refresh, inv, refreshInv, items, 
                     {[
                       ["Customer", detail.customer_name],
                       ["Phone", detail.customer_phone],
+                      ...(detail.customer_email ? [["Email", detail.customer_email]] : []),
                       ["Pickup", `${fmtDate(detail.pickup_date)} at ${fmtTime(detail.pickup_time)}`],
                       ["Invoice", `#${detail.invoice_number}`],
                       ["Location", LOCS.find(l => l.id === detail.location_id)?.name],
@@ -488,6 +491,7 @@ function Orders({ user, orders, orderItemsMap, refresh, inv, refreshInv, items, 
                   <div><p style={{ fontSize: 12, color: "#666", marginBottom: 4 }}>Last name</p><input value={editForm.lastName} onChange={e => setEditForm(f => ({ ...f, lastName: e.target.value }))} style={inp} /></div>
                 </div>
                 <div style={{ marginBottom: 10 }}><p style={{ fontSize: 12, color: "#666", marginBottom: 4 }}>Phone</p><input value={editForm.customer_phone} onChange={e => setEditForm(f => ({ ...f, customer_phone: formatPhone(e.target.value) }))} style={inp} /></div>
+                <div style={{ marginBottom: 10 }}><p style={{ fontSize: 12, color: "#666", marginBottom: 4 }}>Email (optional)</p><input type="email" value={editForm.customer_email || ""} onChange={e => setEditForm(f => ({ ...f, customer_email: e.target.value }))} placeholder="customer@email.com" style={inp} /></div>
                 {!user.location_id && <div style={{ marginBottom: 10 }}><p style={{ fontSize: 12, color: "#666", marginBottom: 4 }}>Location</p><select value={editForm.location_id} onChange={e => setEditForm(f => ({ ...f, location_id: e.target.value }))} style={inp}>{LOCS.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}</select></div>}
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>
                   <div><p style={{ fontSize: 12, color: "#666", marginBottom: 4 }}>Pickup date</p><input type="date" value={editForm.pickup_date} onChange={e => setEditForm(f => ({ ...f, pickup_date: e.target.value }))} style={inp} /></div>
@@ -627,6 +631,7 @@ function NewOrder({ user, orders, refresh, inv, refreshInv, items, setView }) {
       location_id: locationId,
       customer_name: customerName,
       customer_phone: phone,
+      customer_email: email.trim() || null,
       item_id: lineItems[0]?.item_id || "",
       order_date: orderDate,
       order_time: orderTime,
@@ -835,6 +840,54 @@ function Reports({ orders, orderItemsMap, items, user }) {
   const pop = items.map(i => ({ item: i, count: popMap[i.id] || 0 })).filter(r => r.count > 0).sort((a, b) => b.count - a.count);
   const prod = [...fil].sort((a, b) => a.location_id.localeCompare(b.location_id) || a.daily_number - b.daily_number);
 
+  // Contact list — deduplicated by email, fallback dedupe by name+phone, most recent order wins
+  const contactMap = {};
+  [...orders].filter(o => o.status !== "cancelled").sort((a, b) => a.invoice_number - b.invoice_number).forEach(o => {
+    const key = o.customer_email ? o.customer_email.toLowerCase() : `${o.customer_name.toLowerCase()}|${o.customer_phone}`;
+    const l = LOCS.find(l => l.id === o.location_id);
+    const lineItems = (orderItemsMap[o.id] || []).map(li => {
+      const it = items.find(i => i.id === li.item_id);
+      return `${li.quantity > 1 ? `${li.quantity}x ` : ""}${it?.name || ""}`;
+    }).join(", ");
+    contactMap[key] = {
+      name: o.customer_name,
+      phone: o.customer_phone,
+      email: o.customer_email || "",
+      location: l?.name || "",
+      last_order_date: o.pickup_date,
+      last_items: lineItems,
+      order_count: (contactMap[key]?.order_count || 0) + 1,
+    };
+  });
+  const contacts = Object.values(contactMap).sort((a, b) => a.name.localeCompare(b.name));
+  const contactsWithEmail = contacts.filter(c => c.email);
+
+  const downloadContactCSV = (emailOnly) => {
+    const rows = emailOnly ? contactsWithEmail : contacts;
+    const ln = loc ? LOCS.find(l => l.id === loc)?.name : "All Locations";
+    const headers = ["Name", "Phone", "Email", "Location", "Last Order Date", "Last Items Ordered", "Total Orders"];
+    const csv = [
+      headers.join(","),
+      ...rows.map(c => [
+        `"${c.name}"`,
+        `"${c.phone}"`,
+        `"${c.email}"`,
+        `"${c.location}"`,
+        `"${fmtDate(c.last_order_date)}"`,
+        `"${c.last_items}"`,
+        c.order_count,
+      ].join(","))
+    ].join("\n");
+    const blob = new Blob([csv], { type: "text/csv" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    const dateStr = new Date().toISOString().split("T")[0];
+    a.download = `IB_Contacts_${emailOnly ? "EmailOnly_" : ""}${dateStr}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   const printPop = () => {
     const ln = loc ? LOCS.find(l => l.id === loc)?.name : "All Locations";
     const logoUrl = window.location.origin + LOGO_URL;
@@ -900,11 +953,14 @@ function Reports({ orders, orderItemsMap, items, user }) {
         <select value={type} onChange={e => setType(e.target.value)} style={{ ...inp, minWidth: 130, width: "auto" }}>
           <option value="popularity">Popularity</option>
           <option value="production">Production</option>
+          <option value="contacts">Contact List</option>
         </select>
-        {!user.location_id && <select value={loc} onChange={e => setLoc(e.target.value)} style={{ ...inp, minWidth: 130, width: "auto" }}><option value="">All locations</option>{LOCS.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}</select>}
-        <input type="date" value={from} onChange={e => setFrom(e.target.value)} style={{ ...inp, minWidth: 130, width: "auto" }} />
-        <span style={{ color: "#888", fontSize: 12 }}>to</span>
-        <input type="date" value={to} onChange={e => setTo(e.target.value)} style={{ ...inp, minWidth: 130, width: "auto" }} />
+        {type !== "contacts" && !user.location_id && <select value={loc} onChange={e => setLoc(e.target.value)} style={{ ...inp, minWidth: 130, width: "auto" }}><option value="">All locations</option>{LOCS.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}</select>}
+        {type !== "contacts" && <>
+          <input type="date" value={from} onChange={e => setFrom(e.target.value)} style={{ ...inp, minWidth: 130, width: "auto" }} />
+          <span style={{ color: "#888", fontSize: 12 }}>to</span>
+          <input type="date" value={to} onChange={e => setTo(e.target.value)} style={{ ...inp, minWidth: 130, width: "auto" }} />
+        </>}
         {type === "popularity" && <button onClick={printPop} style={{ ...inp, width: "auto", background: "#fff", cursor: "pointer" }}>Print</button>}
         {type === "production" && <>
           <button onClick={printProd} style={{ ...inp, width: "auto", background: "#fff", cursor: "pointer" }}>Print</button>
@@ -943,6 +999,42 @@ function Reports({ orders, orderItemsMap, items, user }) {
                   <td style={{ padding: "7px 8px", color: "#888" }}>{o.notes}</td>
                 </tr>;
               })}</tbody>
+            </table>
+          </div>
+        }
+      </div>}
+      {type === "contacts" && <div>
+        {/* Summary bar */}
+        <div style={{ display: "flex", gap: 10, marginBottom: 14, flexWrap: "wrap", alignItems: "center" }}>
+          <div style={{ background: "#fff", border: "1px solid #e8e8e8", borderRadius: 8, padding: "8px 14px", fontSize: 12 }}>
+            <span style={{ color: "#888" }}>Total unique customers: </span><strong>{contacts.length}</strong>
+          </div>
+          <div style={{ background: "#fff", border: "1px solid #e8e8e8", borderRadius: 8, padding: "8px 14px", fontSize: 12 }}>
+            <span style={{ color: "#888" }}>With email: </span><strong style={{ color: "#2e7d32" }}>{contactsWithEmail.length}</strong>
+          </div>
+          <button onClick={() => downloadContactCSV(false)} style={{ padding: "8px 14px", background: "#8B1A2B", color: "#fff", border: "none", borderRadius: 7, fontSize: 12, cursor: "pointer" }}>
+            ⬇ Download All (.csv)
+          </button>
+          <button onClick={() => downloadContactCSV(true)} style={{ padding: "8px 14px", background: "#fff", color: "#8B1A2B", border: "1px solid #8B1A2B", borderRadius: 7, fontSize: 12, cursor: "pointer" }}>
+            ⬇ Email List Only (.csv)
+          </button>
+        </div>
+        {contacts.length === 0 ? <p style={{ color: "#888", textAlign: "center", padding: "1.5rem" }}>No contacts yet.</p> :
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+              <thead><tr style={{ borderBottom: "1px solid #eee" }}>
+                {["Name", "Phone", "Email", "Location", "Last Order", "Orders"].map(h => <th key={h} style={{ textAlign: "left", padding: "7px 8px", fontSize: 10, color: "#888", fontWeight: 500, textTransform: "uppercase", whiteSpace: "nowrap" }}>{h}</th>)}
+              </tr></thead>
+              <tbody>{contacts.map((c, i) => (
+                <tr key={i} style={{ borderBottom: "1px solid #f5f5f5" }}>
+                  <td style={{ padding: "7px 8px", whiteSpace: "nowrap", fontWeight: 500 }}>{c.name}</td>
+                  <td style={{ padding: "7px 8px", whiteSpace: "nowrap" }}>{c.phone}</td>
+                  <td style={{ padding: "7px 8px", color: c.email ? "#333" : "#ccc" }}>{c.email || "—"}</td>
+                  <td style={{ padding: "7px 8px", whiteSpace: "nowrap" }}>{c.location}</td>
+                  <td style={{ padding: "7px 8px", whiteSpace: "nowrap" }}>{fmtDate(c.last_order_date)}</td>
+                  <td style={{ padding: "7px 8px", textAlign: "center", fontWeight: 700, color: "#8B1A2B" }}>{c.order_count}</td>
+                </tr>
+              ))}</tbody>
             </table>
           </div>
         }
