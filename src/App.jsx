@@ -348,6 +348,9 @@ function Orders({ user, orders, orderItemsMap, refresh, inv, refreshInv, items, 
   const [detail, setDetail] = useState(null);
   const [editing, setEditing] = useState(false);
   const [editForm, setEditForm] = useState(null);
+  const [detailEmail, setDetailEmail] = useState("");
+  const [detailEmailSending, setDetailEmailSending] = useState(false);
+  const [detailEmailStatus, setDetailEmailStatus] = useState("");
 
   const filtered = orders.filter(o => {
     if (!showCancelled && o.status === "cancelled") return false;
@@ -357,7 +360,7 @@ function Orders({ user, orders, orderItemsMap, refresh, inv, refreshInv, items, 
     return true;
   }).sort((a, b) => b.invoice_number - a.invoice_number);
 
-  const openDetail = (o) => { setDetail(o); setEditing(false); setEditForm(null); };
+  const openDetail = (o) => { setDetail(o); setEditing(false); setEditForm(null); setDetailEmail(o.customer_email || ""); setDetailEmailStatus(""); };
 
   const startEdit = (o) => {
     const nameParts = o.customer_name.split(" ");
@@ -471,6 +474,42 @@ function Orders({ user, orders, orderItemsMap, refresh, inv, refreshInv, items, 
                   <button onClick={() => startEdit(detail)} style={{ flex: 1, background: "#fff", color: "#555", border: "1px solid #ddd", borderRadius: 8, padding: 9, fontSize: 13, cursor: "pointer" }}>Edit</button>
                   <button onClick={() => { setDetail(null); setTimeout(() => printReceipt(detail, orderItemsMap[detail.id] || [], items, LOCS), 200); }} style={{ flex: 1, background: "#8B1A2B", color: "#fff", border: "none", borderRadius: 8, padding: 9, fontSize: 13, cursor: "pointer" }}>Print receipt</button>
                   <button onClick={() => { setDetail(null); setTimeout(() => printLabels([detail], { [detail.id]: orderItemsMap[detail.id] || [] }, items, LOCS), 200); }} style={{ flex: 1, background: "#fff", color: "#8B1A2B", border: "1px solid #8B1A2B", borderRadius: 8, padding: 9, fontSize: 13, cursor: "pointer" }}>Print label</button>
+                </div>
+                {/* Email receipt */}
+                <div style={{ border: "1px solid #e8e8e8", borderRadius: 8, padding: "10px 12px", marginTop: 8 }}>
+                  <p style={{ fontSize: 12, color: "#666", margin: "0 0 6px" }}>📧 Email receipt</p>
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <input
+                      type="email"
+                      value={detailEmail}
+                      onChange={e => { setDetailEmail(e.target.value); setDetailEmailStatus(""); }}
+                      placeholder="customer@email.com"
+                      style={{ ...inp, flex: 1 }}
+                    />
+                    <button
+                      onClick={async () => {
+                        if (!detailEmail || !detailEmail.includes("@")) { setDetailEmailStatus("error_addr"); return; }
+                        setDetailEmailSending(true); setDetailEmailStatus("");
+                        const loc = LOCS.find(l => l.id === detail.location_id);
+                        try {
+                          const res = await fetch("/api/send-receipt", {
+                            method: "POST",
+                            headers: { "Content-Type": "application/json" },
+                            body: JSON.stringify({ to: detailEmail, locationId: detail.location_id, order: detail, orderItems: orderItemsMap[detail.id] || [], items, loc }),
+                          });
+                          setDetailEmailStatus(res.ok ? "sent" : "error");
+                        } catch { setDetailEmailStatus("error"); }
+                        setDetailEmailSending(false);
+                      }}
+                      disabled={detailEmailSending}
+                      style={{ padding: "7px 14px", background: "#8B1A2B", color: "#fff", border: "none", borderRadius: 7, fontSize: 13, cursor: detailEmailSending ? "default" : "pointer", opacity: detailEmailSending ? 0.7 : 1, whiteSpace: "nowrap" }}
+                    >
+                      {detailEmailSending ? "Sending…" : "Send"}
+                    </button>
+                  </div>
+                  {detailEmailStatus === "sent" && <p style={{ fontSize: 12, color: "#2e7d32", margin: "5px 0 0" }}>✓ Receipt sent to {detailEmail}</p>}
+                  {detailEmailStatus === "error" && <p style={{ fontSize: 12, color: "#c62828", margin: "5px 0 0" }}>Failed to send. Check Vercel logs.</p>}
+                  {detailEmailStatus === "error_addr" && <p style={{ fontSize: 12, color: "#c62828", margin: "5px 0 0" }}>Please enter a valid email address.</p>}
                 </div>
                 {detail.status === "pending" && (
                   <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
