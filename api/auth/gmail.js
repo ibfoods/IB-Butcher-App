@@ -2,7 +2,7 @@ import { google } from "googleapis";
 
 const CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
 const CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
-const REDIRECT_URI = "https://ib-butcher-app.vercel.app/api/auth/callback";
+const REDIRECT_URI = "https://butcherorders.ibfoods.com/api/auth/callback";
 
 export default function handler(req, res) {
   const { locationId } = req.query;
