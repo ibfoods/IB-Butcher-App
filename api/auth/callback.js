@@ -1,12 +1,36 @@
 import { google } from "googleapis";
-import { createClient } from "@supabase/supabase-js";
-import fetch from "node-fetch";
+import https from "https";
 
 const CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
 const CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
 const REDIRECT_URI = "https://butcherorders.ibfoods.com/api/auth/callback";
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+function httpsPost(url, data, headers) {
+  return new Promise((resolve, reject) => {
+    const parsed = new URL(url);
+    const body = JSON.stringify(data);
+    const options = {
+      hostname: parsed.hostname,
+      path: parsed.pathname + parsed.search,
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Content-Length": Buffer.byteLength(body),
+        ...headers,
+      },
+    };
+    const req = https.request(options, (res) => {
+      let data = "";
+      res.on("data", (chunk) => { data += chunk; });
+      res.on("end", () => resolve({ status: res.statusCode, body: data }));
+    });
+    req.on("error", reject);
+    req.write(body);
+    req.end();
+  });
+}
 
 export default async function handler(req, res) {
   const { code, state: locationId, error } = req.query;
@@ -27,26 +51,29 @@ export default async function handler(req, res) {
   }
 
   try {
-    // Exchange code for tokens
     const oauth2Client = new google.auth.OAuth2(CLIENT_ID, CLIENT_SECRET, REDIRECT_URI);
     const { tokens } = await oauth2Client.getToken(code);
 
-    // Save using Supabase JS client with node-fetch
-    const supabase = createClient(SUPABASE_URL, SUPABASE_KEY, {
-      auth: { persistSession: false },
-      global: { fetch },
-    });
-
-    const { error: dbError } = await supabase.from("gmail_tokens").upsert({
+    const payload = {
       location_id: locationId,
       access_token: tokens.access_token,
       refresh_token: tokens.refresh_token || null,
       expiry_date: tokens.expiry_date || null,
       updated_at: new Date().toISOString(),
-    }, { onConflict: "location_id" });
+    };
 
-    if (dbError) {
-      return res.status(500).json({ error: "DB save failed", details: dbError.message });
+    const result = await httpsPost(
+      `${SUPABASE_URL}/rest/v1/gmail_tokens?on_conflict=location_id`,
+      payload,
+      {
+        "apikey": SUPABASE_KEY,
+        "Authorization": `Bearer ${SUPABASE_KEY}`,
+        "Prefer": "resolution=merge-duplicates",
+      }
+    );
+
+    if (result.status >= 300) {
+      return res.status(500).json({ error: "DB save failed", status: result.status, body: result.body });
     }
 
     res.redirect(`/?gmailConnected=${locationId}`);
