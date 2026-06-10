@@ -39,20 +39,20 @@ export default async function handler(req, res) {
       updated_at: new Date().toISOString(),
     };
 
-    const dbRes = await fetch(`${SUPABASE_URL}/rest/v1/gmail_tokens`, {
+    const dbRes = await fetch(`${SUPABASE_URL}/rest/v1/gmail_tokens?on_conflict=location_id`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         "apikey": SUPABASE_KEY,
         "Authorization": `Bearer ${SUPABASE_KEY}`,
-        "Prefer": "resolution=merge-duplicates,return=minimal",
+        "Prefer": "resolution=merge-duplicates",
       },
       body: JSON.stringify(payload),
     });
 
+    const responseText = await dbRes.text();
     if (!dbRes.ok) {
-      const text = await dbRes.text();
-      return res.status(500).json({ error: "DB save failed", status: dbRes.status, body: text });
+      return res.status(500).json({ error: "DB save failed", status: dbRes.status, body: responseText });
     }
 
     res.redirect(`/?gmailConnected=${locationId}`);
