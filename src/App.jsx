@@ -229,6 +229,17 @@ export default function App() {
       setInv(invMap);
       setItems(it || []);
       setReady(true);
+
+      // Handle Gmail OAuth redirect
+      const params = new URLSearchParams(window.location.search);
+      if (params.get("gmailConnected")) {
+        window.history.replaceState({}, "", "/");
+        // Will show Gmail tab as connected after login
+      }
+      if (params.get("gmailError")) {
+        window.history.replaceState({}, "", "/");
+        console.error("Gmail OAuth error:", params.get("gmailError"));
+      }
     })();
   }, []);
 
@@ -1157,6 +1168,19 @@ function Admin({ users, refreshUsers, items, refreshItems, user, can }) {
   const [ie, setIe] = useState("");
   const [editingUser, setEditingUser] = useState(null);
   const [editingItem, setEditingItem] = useState(null);
+  const [gmailTokens, setGmailTokens] = useState({});
+
+  // Load gmail connection status
+  const loadGmailTokens = async () => {
+    const { data } = await supabase.from("gmail_tokens").select("location_id, updated_at");
+    if (data) {
+      const map = {};
+      data.forEach(r => { map[r.location_id] = r; });
+      setGmailTokens(map);
+    }
+  };
+
+  useState(() => { loadGmailTokens(); }, []);
 
   const parentItems = items.filter(i => !i.parent_id);
   const grouped = parentItems.map(parent => ({
@@ -1218,8 +1242,30 @@ function Admin({ users, refreshUsers, items, refreshItems, user, can }) {
   return (
     <div>
       <div style={{ display: "flex", gap: 6, marginBottom: "1rem" }}>
-        {["users", "items"].map(t => <button key={t} onClick={() => setTab(t)} style={{ fontSize: 12, padding: "6px 14px", background: tab === t ? "#8B1A2B" : "#fff", color: tab === t ? "#fff" : "#888", border: "1px solid #ddd", borderRadius: 7, cursor: "pointer" }}>{t === "users" ? "Users" : "Items"}</button>)}
+        {["users", "items", "gmail"].map(t => <button key={t} onClick={() => { setTab(t); if (t === "gmail") loadGmailTokens(); }} style={{ fontSize: 12, padding: "6px 14px", background: tab === t ? "#8B1A2B" : "#fff", color: tab === t ? "#fff" : "#888", border: "1px solid #ddd", borderRadius: 7, cursor: "pointer" }}>{t === "users" ? "Users" : t === "items" ? "Items" : "Gmail"}</button>)}
       </div>
+
+      {tab === "gmail" && <div>
+        <p style={{ fontSize: 13, color: "#666", marginBottom: 14 }}>Connect each location's Gmail account to enable email receipts. Click Connect and sign in with that location's Google account.</p>
+        {LOCS.map(loc => {
+          const connected = gmailTokens[loc.id];
+          return <div key={loc.id} style={{ background: "#fff", border: "1px solid #e8e8e8", borderRadius: 10, padding: "12px 16px", marginBottom: 8, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+            <div>
+              <p style={{ fontSize: 13, fontWeight: 500, margin: 0 }}>{loc.name}</p>
+              {connected
+                ? <p style={{ fontSize: 11, color: "#2e7d32", margin: "2px 0 0" }}>✓ Connected · Last authorized {new Date(connected.updated_at).toLocaleDateString()}</p>
+                : <p style={{ fontSize: 11, color: "#c62828", margin: "2px 0 0" }}>Not connected</p>
+              }
+            </div>
+            <a
+              href={`/api/auth/gmail?locationId=${loc.id}`}
+              style={{ padding: "7px 14px", background: connected ? "#fff" : "#8B1A2B", color: connected ? "#8B1A2B" : "#fff", border: "1px solid #8B1A2B", borderRadius: 7, fontSize: 12, textDecoration: "none", whiteSpace: "nowrap" }}
+            >
+              {connected ? "Reconnect" : "Connect Gmail"}
+            </a>
+          </div>;
+        })}
+      </div>}
 
       {tab === "users" && <div>
         <div style={{ background: "#fff", border: "1px solid #e8e8e8", borderRadius: 10, padding: "1rem", marginBottom: "1rem" }}>
