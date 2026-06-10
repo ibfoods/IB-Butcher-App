@@ -16,6 +16,14 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: "Missing code or locationId" });
   }
 
+  // Debug: check env vars are present
+  if (!process.env.GOOGLE_CLIENT_ID || !process.env.GOOGLE_CLIENT_SECRET) {
+    return res.status(500).json({ error: "Missing Google credentials", clientId: !!process.env.GOOGLE_CLIENT_ID, clientSecret: !!process.env.GOOGLE_CLIENT_SECRET });
+  }
+  if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
+    return res.status(500).json({ error: "Missing Supabase credentials", url: !!process.env.SUPABASE_URL, key: !!process.env.SUPABASE_SERVICE_ROLE_KEY });
+  }
+
   const supabase = createClient(
     process.env.SUPABASE_URL,
     process.env.SUPABASE_SERVICE_ROLE_KEY
@@ -25,7 +33,7 @@ export default async function handler(req, res) {
     const oauth2Client = new google.auth.OAuth2(CLIENT_ID, CLIENT_SECRET, REDIRECT_URI);
     const { tokens } = await oauth2Client.getToken(code);
 
-    await supabase.from("gmail_tokens").upsert({
+    const { error: dbError } = await supabase.from("gmail_tokens").upsert({
       location_id: locationId,
       access_token: tokens.access_token,
       refresh_token: tokens.refresh_token,
@@ -33,9 +41,13 @@ export default async function handler(req, res) {
       updated_at: new Date().toISOString(),
     }, { onConflict: "location_id" });
 
+    if (dbError) {
+      return res.status(500).json({ error: "DB error", details: dbError.message });
+    }
+
     res.redirect(`/?gmailConnected=${locationId}`);
   } catch (err) {
     console.error("OAuth callback error:", err.message, err.stack);
-    res.redirect(`/?gmailError=${encodeURIComponent(err.message)}&locationId=${locationId}`);
+    return res.status(500).json({ error: err.message, stack: err.stack });
   }
 }
