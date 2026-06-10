@@ -1,4 +1,6 @@
 import { google } from "googleapis";
+import { createClient } from "@supabase/supabase-js";
+import fetch from "node-fetch";
 
 const CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
 const CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
@@ -17,12 +19,11 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: "Missing code or locationId" });
   }
 
-  // Debug env
   if (!CLIENT_ID || !CLIENT_SECRET) {
-    return res.status(500).json({ error: "Missing Google creds", hasId: !!CLIENT_ID, hasSecret: !!CLIENT_SECRET });
+    return res.status(500).json({ error: "Missing Google creds" });
   }
   if (!SUPABASE_URL || !SUPABASE_KEY) {
-    return res.status(500).json({ error: "Missing Supabase creds", hasUrl: !!SUPABASE_URL, hasKey: !!SUPABASE_KEY });
+    return res.status(500).json({ error: "Missing Supabase creds" });
   }
 
   try {
@@ -30,33 +31,26 @@ export default async function handler(req, res) {
     const oauth2Client = new google.auth.OAuth2(CLIENT_ID, CLIENT_SECRET, REDIRECT_URI);
     const { tokens } = await oauth2Client.getToken(code);
 
-    // Save to Supabase via direct fetch
-    const payload = {
+    // Save using Supabase JS client with node-fetch
+    const supabase = createClient(SUPABASE_URL, SUPABASE_KEY, {
+      auth: { persistSession: false },
+      global: { fetch },
+    });
+
+    const { error: dbError } = await supabase.from("gmail_tokens").upsert({
       location_id: locationId,
       access_token: tokens.access_token,
       refresh_token: tokens.refresh_token || null,
       expiry_date: tokens.expiry_date || null,
       updated_at: new Date().toISOString(),
-    };
+    }, { onConflict: "location_id" });
 
-    const dbRes = await fetch(`${SUPABASE_URL}/rest/v1/gmail_tokens?on_conflict=location_id`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "apikey": SUPABASE_KEY,
-        "Authorization": `Bearer ${SUPABASE_KEY}`,
-        "Prefer": "resolution=merge-duplicates",
-      },
-      body: JSON.stringify(payload),
-    });
-
-    const responseText = await dbRes.text();
-    if (!dbRes.ok) {
-      return res.status(500).json({ error: "DB save failed", status: dbRes.status, body: responseText });
+    if (dbError) {
+      return res.status(500).json({ error: "DB save failed", details: dbError.message });
     }
 
     res.redirect(`/?gmailConnected=${locationId}`);
   } catch (err) {
-    return res.status(500).json({ error: err.message, stack: err.stack?.slice(0, 500) });
+    return res.status(500).json({ error: err.message, type: err.constructor.name });
   }
 }
