@@ -5,11 +5,6 @@ const CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
 const CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
 const REDIRECT_URI = "https://butcherorders.ibfoods.com/api/auth/callback";
 
-const supabase = createClient(
-  process.env.SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_ROLE_KEY
-);
-
 export default async function handler(req, res) {
   const { code, state: locationId, error } = req.query;
 
@@ -20,6 +15,11 @@ export default async function handler(req, res) {
   if (!code || !locationId) {
     return res.status(400).json({ error: "Missing code or locationId" });
   }
+
+  const supabase = createClient(
+    process.env.SUPABASE_URL,
+    process.env.SUPABASE_SERVICE_ROLE_KEY
+  );
 
   try {
     const oauth2Client = new google.auth.OAuth2(CLIENT_ID, CLIENT_SECRET, REDIRECT_URI);
@@ -35,7 +35,7 @@ export default async function handler(req, res) {
 
     res.redirect(`/?gmailConnected=${locationId}`);
   } catch (err) {
-    console.error("OAuth callback error:", err);
+    console.error("OAuth callback error:", err.message, err.stack);
     res.redirect(`/?gmailError=${encodeURIComponent(err.message)}&locationId=${locationId}`);
   }
 }
