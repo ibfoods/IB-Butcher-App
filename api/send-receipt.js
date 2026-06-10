@@ -85,9 +85,10 @@ function makeRawEmail({ from, to, subject, html }) {
     `From: Iavarone Bros. <${from}>`,
     `To: ${to}`,
     `Reply-To: ${from}`,
-    `Subject: ${subject}`,
+    `Subject: =?UTF-8?B?${Buffer.from(subject).toString('base64')}?=`,
     `MIME-Version: 1.0`,
-    `Content-Type: text/html; charset=utf-8`,
+    `Content-Type: text/html; charset=UTF-8`,
+    `Content-Transfer-Encoding: quoted-printable`,
     ``,
     html,
   ].join("\r\n");
@@ -142,7 +143,7 @@ export default async function handler(req, res) {
     const raw = makeRawEmail({
       from: fromEmail,
       to,
-      subject: `Your Iavarone Bros. Order #${order.invoice_number} — Pickup ${fmtDate(order.pickup_date)}`,
+      subject: `Your Iavarone Bros. Order #${order.invoice_number} - Pickup ${fmtDate(order.pickup_date)}`,
       html,
     });
 
