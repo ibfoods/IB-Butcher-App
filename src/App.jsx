@@ -1180,7 +1180,7 @@ function Admin({ users, refreshUsers, items, refreshItems, user, can }) {
     }
   };
 
-  useState(() => { loadGmailTokens(); }, []);
+  useEffect(() => { loadGmailTokens(); }, []);
 
   const parentItems = items.filter(i => !i.parent_id);
   const grouped = parentItems.map(parent => ({
