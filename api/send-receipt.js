@@ -1,5 +1,6 @@
 import { google } from "googleapis";
 import { createClient } from "@supabase/supabase-js";
+import PDFDocument from "pdfkit";
 
 const CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
 const CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
@@ -79,20 +80,129 @@ function buildEmailHtml(order, orderItems, items, loc) {
 </body></html>`;
 }
 
-function makeRawEmail({ from, to, subject, html }) {
+function buildReceiptPdf(order, orderItems, items, loc) {
+  return new Promise((resolve, reject) => {
+    const doc = new PDFDocument({ size: [288, 700], margin: 20, autoFirstPage: true });
+    const chunks = [];
+    doc.on("data", c => chunks.push(c));
+    doc.on("end", () => resolve(Buffer.concat(chunks)));
+    doc.on("error", reject);
+
+    const RED = "#8B1A2B";
+    const GRAY = "#666666";
+    const pageW = 288;
+    const mid = pageW / 2;
+
+    // Header
+    doc.fontSize(13).fillColor(RED).font("Helvetica-Bold")
+      .text("IAVARONE BROS.", 20, 22, { align: "center", width: pageW - 40 });
+    doc.fontSize(8).fillColor(GRAY).font("Helvetica")
+      .text(loc?.address || "", 20, 38, { align: "center", width: pageW - 40 })
+      .text(`${loc?.city || ""}   ${loc?.phone || ""}`, { align: "center", width: pageW - 40 });
+
+    // Divider
+    let y = doc.y + 8;
+    doc.moveTo(20, y).lineTo(pageW - 20, y).dash(3, { space: 3 }).strokeColor("#aaaaaa").stroke().undash();
+    y += 10;
+
+    // Order number
+    doc.fontSize(8).fillColor(GRAY).font("Helvetica")
+      .text("DAILY ORDER #", 20, y, { align: "center", width: pageW - 40 });
+    y += 12;
+    doc.fontSize(36).fillColor(RED).font("Helvetica-Bold")
+      .text(String(order.daily_number), 20, y, { align: "center", width: pageW - 40 });
+    y = doc.y + 6;
+
+    // Divider
+    doc.moveTo(20, y).lineTo(pageW - 20, y).dash(3, { space: 3 }).strokeColor("#aaaaaa").stroke().undash();
+    y += 10;
+
+    // Fields
+    const field = (label, value) => {
+      doc.fontSize(7).fillColor(GRAY).font("Helvetica")
+        .text(label, 20, y, { width: pageW - 40 });
+      y = doc.y + 1;
+      doc.fontSize(11).fillColor("#111111").font("Helvetica-Bold")
+        .text(value || "", 20, y, { width: pageW - 40 });
+      y = doc.y + 6;
+    };
+
+    field("CUSTOMER", order.customer_name);
+    field("PHONE", order.customer_phone);
+    field("PICKUP", `${fmtDate(order.pickup_date)} at ${fmtTime(order.pickup_time)}`);
+    field("INVOICE", `#${order.invoice_number}`);
+
+    // Divider
+    doc.moveTo(20, y).lineTo(pageW - 20, y).dash(3, { space: 3 }).strokeColor("#aaaaaa").stroke().undash();
+    y += 8;
+
+    // Items
+    doc.fontSize(7).fillColor(GRAY).font("Helvetica").text("ITEMS", 20, y, { width: pageW - 40 });
+    y = doc.y + 4;
+
+    (orderItems || []).forEach(li => {
+      const item = (items || []).find(i => i.id === li.item_id);
+      if (!item) return;
+      doc.fontSize(10).fillColor("#111111").font("Helvetica-Bold")
+        .text(item.name, 20, y, { width: pageW - 60, continued: false });
+      doc.fontSize(10).fillColor(GRAY).font("Helvetica")
+        .text(`x${li.quantity}`, pageW - 50, y, { width: 30, align: "right" });
+      y = doc.y + 2;
+      doc.moveTo(20, y).lineTo(pageW - 20, y).strokeColor("#eeeeee").lineWidth(0.5).stroke().lineWidth(1);
+      y += 4;
+    });
+
+    // Notes
+    if (order.notes) {
+      doc.moveTo(20, y).lineTo(pageW - 20, y).dash(3, { space: 3 }).strokeColor("#aaaaaa").stroke().undash();
+      y += 8;
+      doc.fontSize(7).fillColor(GRAY).font("Helvetica").text("NOTES", 20, y, { width: pageW - 40 });
+      y = doc.y + 2;
+      doc.fontSize(10).fillColor("#111111").font("Helvetica")
+        .text(order.notes, 20, y, { width: pageW - 40 });
+      y = doc.y + 6;
+    }
+
+    // Footer
+    doc.moveTo(20, y).lineTo(pageW - 20, y).dash(3, { space: 3 }).strokeColor("#aaaaaa").stroke().undash();
+    y += 8;
+    doc.fontSize(9).fillColor(GRAY).font("Helvetica")
+      .text(`Taken by ${takenByInitials(order.taken_by)}`, 20, y, { align: "center", width: pageW - 40 });
+
+    doc.end();
+  });
+}
+
+function makeRawEmail({ from, to, subject, html, pdfBuffer, pdfFilename }) {
   const boundary = "boundary_" + Date.now();
-  const message = [
+  const lines = [
     `From: Iavarone Bros. <${from}>`,
     `To: ${to}`,
     `Reply-To: ${from}`,
-    `Subject: =?UTF-8?B?${Buffer.from(subject).toString('base64')}?=`,
+    `Subject: =?UTF-8?B?${Buffer.from(subject).toString("base64")}?=`,
     `MIME-Version: 1.0`,
+    `Content-Type: multipart/mixed; boundary="${boundary}"`,
+    ``,
+    `--${boundary}`,
     `Content-Type: text/html; charset=UTF-8`,
     `Content-Transfer-Encoding: quoted-printable`,
     ``,
     html,
-  ].join("\r\n");
-  return Buffer.from(message).toString("base64url");
+  ];
+
+  if (pdfBuffer && pdfFilename) {
+    lines.push(
+      `--${boundary}`,
+      `Content-Type: application/pdf; name="${pdfFilename}"`,
+      `Content-Disposition: attachment; filename="${pdfFilename}"`,
+      `Content-Transfer-Encoding: base64`,
+      ``,
+      pdfBuffer.toString("base64"),
+    );
+  }
+
+  lines.push(`--${boundary}--`);
+  return Buffer.from(lines.join("\r\n")).toString("base64url");
 }
 
 export default async function handler(req, res) {
@@ -139,12 +249,16 @@ export default async function handler(req, res) {
 
     const gmail = google.gmail({ version: "v1", auth: oauth2Client });
     const html = buildEmailHtml(order, orderItems, items, loc);
+    const pdfBuffer = await buildReceiptPdf(order, orderItems, items, loc);
+    const pdfFilename = `IB-Order-${order.invoice_number}.pdf`;
 
     const raw = makeRawEmail({
       from: fromEmail,
       to,
       subject: `Your Iavarone Bros. Order #${order.invoice_number} - Pickup ${fmtDate(order.pickup_date)}`,
       html,
+      pdfBuffer,
+      pdfFilename,
     });
 
     await gmail.users.messages.send({
