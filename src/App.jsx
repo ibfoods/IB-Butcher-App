@@ -1169,14 +1169,19 @@ function Admin({ users, refreshUsers, items, refreshItems, user, can }) {
   const [editingUser, setEditingUser] = useState(null);
   const [editingItem, setEditingItem] = useState(null);
   const [gmailTokens, setGmailTokens] = useState({});
+  const [gmailLoading, setGmailLoading] = useState(false);
 
-  // Load gmail connection status
+  // Validate gmail tokens against live Gmail API
   const loadGmailTokens = async () => {
-    const { data } = await supabase.from("gmail_tokens").select("location_id, updated_at");
-    if (data) {
-      const map = {};
-      data.forEach(r => { map[r.location_id] = r; });
-      setGmailTokens(map);
+    setGmailLoading(true);
+    try {
+      const r = await fetch("/api/auth/status");
+      const json = await r.json();
+      if (json.statuses) setGmailTokens(json.statuses);
+    } catch (e) {
+      console.error("Failed to load Gmail statuses", e);
+    } finally {
+      setGmailLoading(false);
     }
   };
 
@@ -1246,22 +1251,33 @@ function Admin({ users, refreshUsers, items, refreshItems, user, can }) {
       </div>
 
       {tab === "gmail" && <div>
-        <p style={{ fontSize: 13, color: "#666", marginBottom: 14 }}>Connect each location's Gmail account to enable email receipts. Click Connect and sign in with that location's Google account.</p>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
+          <p style={{ fontSize: 13, color: "#666", margin: 0 }}>Connect each location's Gmail account to enable email receipts.</p>
+          <button onClick={loadGmailTokens} disabled={gmailLoading} style={{ fontSize: 11, padding: "5px 10px", background: "#fff", border: "1px solid #ddd", borderRadius: 6, cursor: "pointer", color: "#666" }}>
+            {gmailLoading ? "Checking..." : "↻ Refresh"}
+          </button>
+        </div>
         {LOCS.map(loc => {
-          const connected = gmailTokens[loc.id];
-          return <div key={loc.id} style={{ background: "#fff", border: "1px solid #e8e8e8", borderRadius: 10, padding: "12px 16px", marginBottom: 8, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          const status = gmailTokens[loc.id];
+          const isConnected = status?.connected === true;
+          const isInvalid = status && status.connected === false;
+          return <div key={loc.id} style={{ background: "#fff", border: `1px solid ${isInvalid ? "#fbb" : "#e8e8e8"}`, borderRadius: 10, padding: "12px 16px", marginBottom: 8, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
             <div>
               <p style={{ fontSize: 13, fontWeight: 500, margin: 0 }}>{loc.name}</p>
-              {connected
-                ? <p style={{ fontSize: 11, color: "#2e7d32", margin: "2px 0 0" }}>✓ Connected · Last authorized {new Date(connected.updated_at).toLocaleDateString()}</p>
-                : <p style={{ fontSize: 11, color: "#c62828", margin: "2px 0 0" }}>Not connected</p>
+              {gmailLoading
+                ? <p style={{ fontSize: 11, color: "#999", margin: "2px 0 0" }}>Checking...</p>
+                : isConnected
+                  ? <p style={{ fontSize: 11, color: "#2e7d32", margin: "2px 0 0" }}>✓ Connected · {status.email} · Last authorized {new Date(status.updated_at).toLocaleDateString()}</p>
+                  : isInvalid
+                    ? <p style={{ fontSize: 11, color: "#c62828", margin: "2px 0 0" }}>⚠ Token invalid or revoked — reconnect required</p>
+                    : <p style={{ fontSize: 11, color: "#c62828", margin: "2px 0 0" }}>Not connected</p>
               }
             </div>
             <a
               href={`/api/auth/gmail?locationId=${loc.id}`}
-              style={{ padding: "7px 14px", background: connected ? "#fff" : "#8B1A2B", color: connected ? "#8B1A2B" : "#fff", border: "1px solid #8B1A2B", borderRadius: 7, fontSize: 12, textDecoration: "none", whiteSpace: "nowrap" }}
+              style={{ padding: "7px 14px", background: isConnected ? "#fff" : "#8B1A2B", color: isConnected ? "#8B1A2B" : "#fff", border: "1px solid #8B1A2B", borderRadius: 7, fontSize: 12, textDecoration: "none", whiteSpace: "nowrap" }}
             >
-              {connected ? "Reconnect" : "Connect Gmail"}
+              {isConnected ? "Reconnect" : isInvalid ? "Reconnect" : "Connect Gmail"}
             </a>
           </div>;
         })}
