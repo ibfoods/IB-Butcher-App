@@ -306,11 +306,11 @@ function Login({ users, onLogin }) {
         <div style={{ background: "#fff", border: "1px solid #e8e8e8", borderRadius: 10, padding: 20 }}>
           <div style={{ marginBottom: 10 }}>
             <p style={{ fontSize: 12, color: "#666", marginBottom: 4 }}>Username</p>
-            <input value={username} onChange={e => setUsername(e.target.value)} onKeyDown={e => e.key === "Enter" && go()} placeholder="Username" style={inp} />
+            <input value={username} onChange={e => setUsername(e.target.value)} onKeyDown={e => e.key === "Enter" && go()} placeholder="Username" style={{ ...inp, fontSize: 16 }} />
           </div>
           <div style={{ marginBottom: 14 }}>
             <p style={{ fontSize: 12, color: "#666", marginBottom: 4 }}>Password</p>
-            <input type="password" value={password} onChange={e => setPassword(e.target.value)} onKeyDown={e => e.key === "Enter" && go()} placeholder="Password" style={inp} />
+            <input type="password" value={password} onChange={e => setPassword(e.target.value)} onKeyDown={e => e.key === "Enter" && go()} placeholder="Password" style={{ ...inp, fontSize: 16 }} />
           </div>
           {err && <p style={{ color: "#c62828", fontSize: 12, marginBottom: 10 }}>{err}</p>}
           <button onClick={go} style={{ width: "100%", background: "#8B1A2B", color: "#fff", border: "none", borderRadius: 8, padding: 10, fontSize: 14, fontWeight: 500, cursor: "pointer" }}>Sign in</button>
