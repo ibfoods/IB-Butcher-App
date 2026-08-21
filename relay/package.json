@@ -1,0 +1,22 @@
+{
+  "name": "ib-butcher-epson-print-relay",
+  "version": "1.0.0",
+  "description": "TCP bridge: HTTPS (via tunnel) -> Epson TM-T88VII port 9100",
+  "main": "epson-server.cjs",
+  "scripts": {
+    "start": "node epson-server.cjs",
+    "pm2": "npx pm2 start epson-server.cjs --name ib-epson-print --restart-delay 3000",
+    "pm2:stop": "npx pm2 stop ib-epson-print",
+    "pm2:logs": "npx pm2 logs ib-epson-print"
+  },
+  "engines": {
+    "node": ">=16"
+  },
+  "dependencies": {},
+  "notes": {
+    "PRINTER_IP": "Override via env var, default 192.168.4.155 (current Woodbury Epson DHCP IP as of 8/21/2026 — verify this hasn't changed)",
+    "PRINTER_PORT": "Override via env var, default 9100 (Epson raw ESC/POS socket port)",
+    "PROXY_PORT": "Override via env var, default 3002",
+    "RELAY_SHARED_SECRET": "Set this to a random string and configure the same value in Vercel's EPSON_RELAY_SECRET env var — since the tunnel URL is technically public, this prevents randoms from printing to your receipt printer."
+  }
+}
