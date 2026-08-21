@@ -3,10 +3,11 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<link rel="apple-touch-icon" href="/logo.jpg" />
-<meta name="apple-mobile-web-app-title" content="IB Butcher" />
+    <link rel="apple-touch-icon" href="/logo.jpg" />
+    <meta name="apple-mobile-web-app-title" content="IB Butcher" />
     <title>IB Butcher App</title>
-    <!-- Epson ePOS SDK is loaded dynamically from the printer at runtime (see App.jsx loadEposSDK) -->
+    <!-- Epson ePOS SDK bundled locally to avoid HTTPS mixed-content block -->
+    <script src="/epos-2.27.0.js"></script>
   </head>
   <body>
     <div id="root"></div>
