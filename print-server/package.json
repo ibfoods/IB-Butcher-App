@@ -1,0 +1,22 @@
+{
+  "name": "ib-butcher-print-proxy",
+  "version": "1.0.0",
+  "description": "TCP bridge: HTTP → Star TSP100IIIW port 9100",
+  "main": "server.cjs",
+  "scripts": {
+    "start": "node server.cjs",
+    "pm2": "npx pm2 start server.cjs --name ib-print --restart-delay 3000",
+    "pm2:stop": "npx pm2 stop ib-print",
+    "pm2:logs": "npx pm2 logs ib-print"
+  },
+  "engines": {
+    "node": ">=16"
+  },
+  "dependencies": {},
+  "notes": {
+    "PRINTER_IP":       "Override via env var, default 192.168.4.200",
+    "PRINTER_PORT":     "Override via env var, default 9100",
+    "PROXY_PORT":       "Override via env var, default 3001",
+    "ALLOWED_ORIGINS":  "Comma-separated origins, default * (all). Lock to https://butcherorders.ibfoods.com in production."
+  }
+}

@@ -46,7 +46,134 @@ function formatPhone(val) {
   return `(${digits.slice(0,3)}) ${digits.slice(3,6)}-${digits.slice(6)}`;
 }
 
-function printReceipt(order, orderItems, items, locs) {
+// ── ePOS Receipt Printing ─────────────────────────────────────────────────────
+// Sends directly to the Epson TM-T88VII via ePOS SDK over WiFi.
+// No print dialog, no popup, no drivers needed.
+// The printer IP is set per-location in Admin → Printers.
+// iPad must be on the same WiFi network as the printer.
+
+async function printReceipt(order, orderItems, items, locs, printerIps = {}) {
+  const loc = locs.find(l => l.id === order.location_id);
+  const printerIp = printerIps[order.location_id];
+  const takenBy = takenByInitials(order.taken_by);
+
+  // If no printer IP configured for this location, fall back to browser print
+  if (!printerIp) {
+    const confirmed = window.confirm("No printer configured for this location. Print via browser instead?");
+    if (!confirmed) return;
+    printReceiptBrowser(order, orderItems, items, locs);
+    return;
+  }
+
+  // Load ePOS SDK dynamically from the printer (it self-hosts the SDK)
+  if (!window.epson) {
+    await new Promise((resolve, reject) => {
+      const script = document.createElement("script");
+      script.src = `http://${printerIp}/epos/epos-2.27.0.js`;
+      script.onload = resolve;
+      script.onerror = () => reject(new Error("Could not load ePOS SDK from printer. Make sure the iPad is on the same WiFi network as the printer."));
+      document.head.appendChild(script);
+    });
+  }
+
+  const ePosDev = new window.epson.ePOSDevice();
+
+  try {
+    // Connect to printer
+    await new Promise((resolve, reject) => {
+      ePosDev.connect(printerIp, 8008, (result) => {
+        if (result === "OK" || result === "SSL_CONNECT_OK") resolve();
+        else reject(new Error(`Printer connection failed: ${result}`));
+      });
+    });
+
+    // Create printer device
+    const printer = await new Promise((resolve, reject) => {
+      ePosDev.createDevice("local_printer", ePosDev.DEVICE_TYPE_PRINTER,
+        { crypto: false, buffer: false },
+        (dev, retcode) => {
+          if (retcode === "OK") resolve(dev);
+          else reject(new Error(`Create device failed: ${retcode}`));
+        }
+      );
+    });
+
+    // Build receipt
+    printer.addTextAlign(printer.ALIGN_CENTER);
+    printer.addTextStyle(false, false, true, printer.COLOR_1);
+    printer.addTextSize(2, 2);
+    printer.addText("IAVARONE BROS.\n");
+    printer.addTextSize(1, 1);
+    printer.addTextStyle(false, false, false, printer.COLOR_1);
+    printer.addText(`${loc?.address || ""}\n`);
+    printer.addText(`${loc?.city || ""}\n`);
+    printer.addText(`${loc?.phone || ""}\n`);
+    printer.addText("--------------------------------\n");
+
+    printer.addTextAlign(printer.ALIGN_CENTER);
+    printer.addTextStyle(false, false, false, printer.COLOR_1);
+    printer.addText("DAILY ORDER #\n");
+    printer.addTextStyle(false, false, true, printer.COLOR_1);
+    printer.addTextSize(3, 3);
+    printer.addText(`${order.daily_number}\n`);
+    printer.addTextSize(1, 1);
+    printer.addTextStyle(false, false, false, printer.COLOR_1);
+    printer.addText("--------------------------------\n");
+
+    printer.addTextAlign(printer.ALIGN_LEFT);
+    printer.addText(`CUSTOMER\n`);
+    printer.addTextStyle(false, false, true, printer.COLOR_1);
+    printer.addText(`${order.customer_name || ""}\n`);
+    printer.addTextStyle(false, false, false, printer.COLOR_1);
+    printer.addText(`PHONE\n${order.customer_phone || ""}\n`);
+    printer.addText(`PICKUP\n${fmtDate(order.pickup_date)} at ${fmtTime(order.pickup_time)}\n`);
+    printer.addText(`INVOICE\n#${order.invoice_number}\n`);
+    printer.addText("--------------------------------\n");
+
+    printer.addText("ITEMS\n");
+    orderItems.forEach(li => {
+      const item = items.find(i => i.id === li.item_id);
+      const name = item?.name || "";
+      const qty = `x${li.quantity}`;
+      const pad = 32 - name.length - qty.length;
+      printer.addText(`${name}${" ".repeat(Math.max(1, pad))}${qty}\n`);
+    });
+
+    if (order.notes) {
+      printer.addText("--------------------------------\n");
+      printer.addText(`NOTES\n${order.notes}\n`);
+    }
+
+    printer.addText("--------------------------------\n");
+    printer.addTextAlign(printer.ALIGN_CENTER);
+    printer.addText(`Taken by ${takenBy}\n`);
+    printer.addFeedLine(4);
+    printer.addCut(printer.CUT_PARTIAL);
+
+    // Send to printer
+    await new Promise((resolve, reject) => {
+      printer.onreceive = (res) => {
+        if (res.success) resolve();
+        else reject(new Error("Print job failed"));
+      };
+      printer.onerror = (err) => reject(new Error(`Printer error: ${err.status}`));
+      printer.send();
+    });
+
+    // Disconnect
+    ePosDev.deleteDevice(printer, () => {});
+    ePosDev.disconnect();
+
+  } catch (err) {
+    try { ePosDev.disconnect(); } catch (_) {}
+    console.error("ePOS print error:", err);
+    const fallback = window.confirm(`Printer error: ${err.message}\n\nPrint via browser instead?`);
+    if (fallback) printReceiptBrowser(order, orderItems, items, locs);
+  }
+}
+
+// Browser fallback (original popup print)
+function printReceiptBrowser(order, orderItems, items, locs) {
   const loc = locs.find(l => l.id === order.location_id);
   const logoUrl = window.location.origin + LOGO_URL;
   const takenBy = takenByInitials(order.taken_by);
@@ -54,7 +181,6 @@ function printReceipt(order, orderItems, items, locs) {
     const item = items.find(i => i.id === li.item_id);
     return `<div style="padding:4px 0;border-bottom:1px dotted #ddd;"><span style="font-weight:bold;font-size:13px;">${item?.name || ""}</span><span style="float:right;color:#666;font-size:12px;">x${li.quantity}</span></div>`;
   }).join("");
-
   const html = `<!DOCTYPE html><html><head><title>Order #${order.invoice_number}</title><style>
     body{font-family:Arial,sans-serif;font-size:12px;padding:20px;max-width:300px;margin:0 auto}
     h2{font-size:17px;text-align:center;letter-spacing:1px;margin:0 0 3px}
@@ -63,9 +189,7 @@ function printReceipt(order, orderItems, items, locs) {
     .big{font-size:40px;font-weight:bold;text-align:center;margin:4px 0;color:#8B1A2B}
     .lbl{font-size:9px;text-transform:uppercase;letter-spacing:1px;color:#999;margin:8px 0 2px}
     .val{font-size:13px;font-weight:bold;margin:1px 0}
-    .logo{display:block;margin:0 auto 8px;width:70px;height:70px;object-fit:contain}
   </style></head><body>
-    <img src="${logoUrl}" class="logo" />
     <h2>IAVARONE BROS.</h2>
     <p class="s">${loc?.address}<br>${loc?.city}<br>${loc?.phone}</p>
     <div class="d"></div>
@@ -80,13 +204,7 @@ function printReceipt(order, orderItems, items, locs) {
     ${order.notes ? `<div class="d"></div><p class="lbl">Notes</p><p>${order.notes}</p>` : ""}
     <div class="d"></div>
     <p class="c s">Taken by ${takenBy}</p>
-    <script>
-      window.onload = function() {
-        var img = document.querySelector('img');
-        if (img.complete) { window.print(); }
-        else { img.onload = function() { window.print(); }; }
-      };
-    <\/script>
+    <script>window.onload=function(){window.print();};<\/script>
   </body></html>`;
   const w = window.open("", "_blank");
   if (!w) { alert("Please allow popups to print."); return; }
@@ -212,6 +330,7 @@ export default function App() {
   const [orderItems, setOrderItems] = useState([]);
   const [inv, setInv] = useState({});
   const [items, setItems] = useState([]);
+  const [printerIps, setPrinterIps] = useState({});
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
@@ -221,6 +340,7 @@ export default function App() {
       const { data: oi } = await supabase.from("order_items").select("*");
       const { data: i } = await supabase.from("inventory").select("*");
       const { data: it } = await supabase.from("items").select("*");
+      const { data: pr } = await supabase.from("printer_settings").select("*");
       setUsers(u || []);
       setOrders(o || []);
       setOrderItems(oi || []);
@@ -228,6 +348,9 @@ export default function App() {
       (i || []).forEach(r => { invMap[`${r.location_id}_${r.item_id}`] = r.stock; });
       setInv(invMap);
       setItems(it || []);
+      const ipMap = {};
+      (pr || []).forEach(r => { if (r.printer_ip) ipMap[r.location_id] = r.printer_ip; });
+      setPrinterIps(ipMap);
       setReady(true);
 
       // Handle Gmail OAuth redirect
@@ -276,11 +399,11 @@ export default function App() {
     <div style={{ fontFamily: "system-ui,sans-serif", fontSize: 14, background: "#f5f5f5", minHeight: "100vh" }}>
       <Nav user={user} loc={loc} view={view} setView={setView} can={can} onLogout={logout} />
       <div style={{ maxWidth: 860, margin: "0 auto", padding: "1rem" }}>
-        {view === "orders" && <Orders user={user} orders={orders} orderItemsMap={orderItemsMap} refresh={refreshOrders} inv={inv} refreshInv={refreshInv} items={items} can={can} />}
-        {view === "new_order" && <NewOrder user={user} orders={orders} refresh={refreshOrders} inv={inv} refreshInv={refreshInv} items={items} setView={setView} />}
+        {view === "orders" && <Orders user={user} orders={orders} orderItemsMap={orderItemsMap} refresh={refreshOrders} inv={inv} refreshInv={refreshInv} items={items} can={can} printerIps={printerIps} />}
+        {view === "new_order" && <NewOrder user={user} orders={orders} refresh={refreshOrders} inv={inv} refreshInv={refreshInv} items={items} setView={setView} printerIps={printerIps} />}
         {view === "reports" && <Reports orders={orders} orderItemsMap={orderItemsMap} items={items} user={user} />}
         {view === "inventory" && can("manager") && <Inventory inv={inv} refreshInv={refreshInv} items={items} user={user} />}
-        {view === "admin" && can("admin") && <Admin users={users} refreshUsers={refreshUsers} items={items} refreshItems={refreshItems} user={user} can={can} />}
+        {view === "admin" && can("admin") && <Admin users={users} refreshUsers={refreshUsers} items={items} refreshItems={refreshItems} user={user} can={can} printerIps={printerIps} setPrinterIps={setPrinterIps} />}
       </div>
     </div>
   );
@@ -351,7 +474,7 @@ function Nav({ user, loc, view, setView, can, onLogout }) {
   );
 }
 
-function Orders({ user, orders, orderItemsMap, refresh, inv, refreshInv, items, can }) {
+function Orders({ user, orders, orderItemsMap, refresh, inv, refreshInv, items, can, printerIps = {} }) {
   const [search, setSearch] = useState("");
   const [lf, setLf] = useState(user.location_id || "");
   const [df, setDf] = useState("");
@@ -483,7 +606,7 @@ function Orders({ user, orders, orderItemsMap, refresh, inv, refreshInv, items, 
                 </div>
                 <div style={{ display: "flex", gap: 8, marginTop: 12, flexWrap: "wrap" }}>
                   <button onClick={() => startEdit(detail)} style={{ flex: 1, background: "#fff", color: "#555", border: "1px solid #ddd", borderRadius: 8, padding: 9, fontSize: 13, cursor: "pointer" }}>Edit</button>
-                  <button onClick={() => { setDetail(null); setTimeout(() => printReceipt(detail, orderItemsMap[detail.id] || [], items, LOCS), 200); }} style={{ flex: 1, background: "#8B1A2B", color: "#fff", border: "none", borderRadius: 8, padding: 9, fontSize: 13, cursor: "pointer" }}>Print receipt</button>
+                  <button onClick={() => { setDetail(null); setTimeout(() => printReceipt(detail, orderItemsMap[detail.id] || [], items, LOCS, printerIps), 200); }} style={{ flex: 1, background: "#8B1A2B", color: "#fff", border: "none", borderRadius: 8, padding: 9, fontSize: 13, cursor: "pointer" }}>Print receipt</button>
                   <button onClick={() => { setDetail(null); setTimeout(() => printLabels([detail], { [detail.id]: orderItemsMap[detail.id] || [] }, items, LOCS), 200); }} style={{ flex: 1, background: "#fff", color: "#8B1A2B", border: "1px solid #8B1A2B", borderRadius: 8, padding: 9, fontSize: 13, cursor: "pointer" }}>Print label</button>
                 </div>
                 {/* Email receipt */}
@@ -627,7 +750,7 @@ function Orders({ user, orders, orderItemsMap, refresh, inv, refreshInv, items, 
   );
 }
 
-function NewOrder({ user, orders, refresh, inv, refreshInv, items, setView }) {
+function NewOrder({ user, orders, refresh, inv, refreshInv, items, setView, printerIps = {} }) {
   const locs = user.location_id ? LOCS.filter(l => l.id === user.location_id) : LOCS;
   const orderableItems = items.filter(i => i.active !== false);
   const [locationId, setLocationId] = useState(user.location_id || locs[0]?.id || "");
@@ -776,7 +899,7 @@ function NewOrder({ user, orders, refresh, inv, refreshInv, items, setView }) {
 
           {/* Print */}
           <button
-            onClick={() => printReceipt(placedOrder, placedOrderItems, items, LOCS)}
+            onClick={() => printReceipt(placedOrder, placedOrderItems, items, LOCS, printerIps)}
             style={{ width: "100%", background: "#fff", color: "#333", border: "1px solid #ddd", borderRadius: 8, padding: "11px 14px", fontSize: 14, cursor: "pointer", marginBottom: 8, display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}
           >
             🖨️ Print Receipt
@@ -809,7 +932,7 @@ function NewOrder({ user, orders, refresh, inv, refreshInv, items, setView }) {
           {/* Both */}
           {hasEmail && emailStatus !== "sent" && (
             <button
-              onClick={async () => { printReceipt(placedOrder, placedOrderItems, items, LOCS); await sendEmail(confirmEmail); }}
+              onClick={async () => { printReceipt(placedOrder, placedOrderItems, items, LOCS, printerIps); await sendEmail(confirmEmail); }}
               disabled={emailSending}
               style={{ width: "100%", background: "#f5f5f5", color: "#333", border: "1px solid #ddd", borderRadius: 8, padding: "11px 14px", fontSize: 14, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}
             >
@@ -1156,8 +1279,10 @@ function Inventory({ inv, refreshInv, items, user }) {
   );
 }
 
-function Admin({ users, refreshUsers, items, refreshItems, user, can }) {
+function Admin({ users, refreshUsers, items, refreshItems, user, can, printerIps = {}, setPrinterIps }) {
   const [tab, setTab] = useState("users");
+  const [printerEdits, setPrinterEdits] = useState({});
+  const [printerSaving, setPrinterSaving] = useState({});
   const [name, setName] = useState("");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
@@ -1247,7 +1372,7 @@ function Admin({ users, refreshUsers, items, refreshItems, user, can }) {
   return (
     <div>
       <div style={{ display: "flex", gap: 6, marginBottom: "1rem" }}>
-        {["users", "items", "gmail"].map(t => <button key={t} onClick={() => { setTab(t); if (t === "gmail") loadGmailTokens(); }} style={{ fontSize: 12, padding: "6px 14px", background: tab === t ? "#8B1A2B" : "#fff", color: tab === t ? "#fff" : "#888", border: "1px solid #ddd", borderRadius: 7, cursor: "pointer" }}>{t === "users" ? "Users" : t === "items" ? "Items" : "Gmail"}</button>)}
+        {["users", "items", "gmail", "printers"].map(t => <button key={t} onClick={() => { setTab(t); if (t === "gmail") loadGmailTokens(); }} style={{ fontSize: 12, padding: "6px 14px", background: tab === t ? "#8B1A2B" : "#fff", color: tab === t ? "#fff" : "#888", border: "1px solid #ddd", borderRadius: 7, cursor: "pointer" }}>{t === "users" ? "Users" : t === "items" ? "Items" : t === "gmail" ? "Gmail" : "🖨️ Printers"}</button>)}
       </div>
 
       {tab === "gmail" && <div>
@@ -1410,6 +1535,46 @@ function Admin({ users, refreshUsers, items, refreshItems, user, can }) {
             </div>}
           </div>
         ))}
+      </div>}
+
+      {tab === "printers" && <div>
+        <p style={{ fontSize: 13, color: "#666", marginBottom: 14 }}>
+          Set the printer IP for each location. The iPad must be on the same WiFi as the printer.
+        </p>
+        {LOCS.map(loc => {
+          const current = printerIps[loc.id] || "";
+          const edited = printerEdits[loc.id] !== undefined ? printerEdits[loc.id] : current;
+          const saving = printerSaving[loc.id];
+          const savePrinter = async () => {
+            setPrinterSaving(s => ({ ...s, [loc.id]: true }));
+            const ip = (printerEdits[loc.id] || "").trim();
+            await supabase.from("printer_settings").upsert({ location_id: loc.id, printer_ip: ip || null }, { onConflict: "location_id" });
+            setPrinterIps(prev => ({ ...prev, [loc.id]: ip || null }));
+            setPrinterEdits(e => { const n = { ...e }; delete n[loc.id]; return n; });
+            setPrinterSaving(s => ({ ...s, [loc.id]: false }));
+          };
+          return (
+            <div key={loc.id} style={{ background: "#fff", border: "1px solid #e8e8e8", borderRadius: 10, padding: "12px 16px", marginBottom: 8 }}>
+              <p style={{ fontSize: 13, fontWeight: 600, margin: "0 0 8px" }}>{loc.name}</p>
+              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                <input
+                  value={edited}
+                  onChange={e => setPrinterEdits(prev => ({ ...prev, [loc.id]: e.target.value }))}
+                  placeholder="e.g. 192.168.4.200"
+                  style={{ ...inp, flex: 1, fontFamily: "monospace" }}
+                />
+                <button
+                  onClick={savePrinter}
+                  disabled={saving || edited === current}
+                  style={{ fontSize: 12, padding: "7px 14px", background: edited !== current ? "#8B1A2B" : "#ccc", color: "#fff", border: "none", borderRadius: 7, cursor: edited !== current ? "pointer" : "default", whiteSpace: "nowrap" }}
+                >
+                  {saving ? "Saving…" : "Save"}
+                </button>
+              </div>
+              {current && <p style={{ fontSize: 11, color: "#2e7d32", margin: "6px 0 0" }}>✓ Connected to {current}</p>}
+            </div>
+          );
+        })}
       </div>}
     </div>
   );
