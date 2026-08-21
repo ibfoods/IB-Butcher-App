@@ -74,12 +74,15 @@ async function printReceipt(order, orderItems, items, locs, printerIps = {}) {
   const ePosDev = new window.epson.ePOSDevice();
 
   try {
-    // Connect to printer
+    // Connect to printer over SSL (wss://) — required because the app runs on HTTPS
+    // and browsers block a plain ws:// socket from an HTTPS page (mixed content),
+    // the same restriction that applies to script loading. Port 8043 is the
+    // ePOS-Device SSL port on this printer (8008 is the plain, unencrypted port).
     await new Promise((resolve, reject) => {
-      ePosDev.connect(printerIp, 8008, (result) => {
+      ePosDev.connect(printerIp, 8043, (result) => {
         if (result === "OK" || result === "SSL_CONNECT_OK") resolve();
         else reject(new Error(`Printer connection failed: ${result}`));
-      });
+      }, { ssl: true });
     });
 
     // Create printer device
