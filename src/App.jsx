@@ -65,15 +65,10 @@ async function printReceipt(order, orderItems, items, locs, printerIps = {}) {
     return;
   }
 
-  // Load ePOS SDK dynamically from the printer (it self-hosts the SDK)
+  // ePOS SDK is bundled in /public/epos-2.27.0.js and loaded via index.html
+  // No dynamic script injection needed — window.epson is always available
   if (!window.epson) {
-    await new Promise((resolve, reject) => {
-      const script = document.createElement("script");
-      script.src = `http://${printerIp}/epos/epos-2.27.0.js`;
-      script.onload = resolve;
-      script.onerror = () => reject(new Error("Could not load ePOS SDK from printer. Make sure the iPad is on the same WiFi network as the printer."));
-      document.head.appendChild(script);
-    });
+    throw new Error("ePOS SDK not loaded. Please refresh the page and try again.");
   }
 
   const ePosDev = new window.epson.ePOSDevice();
