@@ -81,7 +81,7 @@ function sendToPrinter(rawBytes) {
       socket.destroy();
       err ? reject(err) : resolve();
     };
-    socket.setTimeout(8000);
+    socket.setTimeout(20000);
     socket.connect(PRINTER_PORT, PRINTER_IP, () => {
       log(`TCP connected -> ${PRINTER_IP}:${PRINTER_PORT}, sending ${rawBytes.length} bytes`);
       socket.write(rawBytes, (err) => {
