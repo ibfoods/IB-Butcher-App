@@ -53,107 +53,21 @@ function formatPhone(val) {
 // iPad must be on the same WiFi network as the printer.
 
 async function printReceipt(order, orderItems, items, locs, printerIps = {}) {
+  // Routes print jobs through the Vercel relay → Cloudflare Tunnel → local
+  // relay server → printer over TCP 9100 (raw ESC/POS). This sidesteps all
+  // browser security restrictions (mixed content, cert exceptions) that block
+  // direct browser → printer connections, including from home-screen icons.
   const loc = locs.find(l => l.id === order.location_id);
-  const printerIp = printerIps[order.location_id];
-  const takenBy = takenByInitials(order.taken_by);
-
-  // If no printer IP configured for this location, fall back to browser print
-  if (!printerIp) {
-    const confirmed = window.confirm("No printer configured for this location. Print via browser instead?");
-    if (!confirmed) return;
-    printReceiptBrowser(order, orderItems, items, locs);
-    return;
-  }
-
-  // ── ePOS-Print XML over HTTPS ─────────────────────────────────────────────
-  // Uses Epson's ePOS-Print XML protocol (SOAP/HTTP POST to the printer's
-  // built-in web service), NOT the ePOS-Device WebSocket SDK. This is a
-  // simpler, plainer HTTP protocol with no separate SDK dependency.
-  //
-  // Requirements on the printer (same for every location, see
-  // PRINTER_SETUP_NEW_LOCATION.md for the full one-time setup checklist):
-  //   1. "ePOS-Print" service enabled in WebConfig (Advanced Settings >
-  //      TM-Intelligent > Services > ePOS-Print). This is mutually exclusive
-  //      with "ePOS-Device" — only one can be enabled at a time.
-  //   2. The printer's IP saved in Admin > Printers for that location.
-  //   3. The iPad/device printing must have the printer's self-signed
-  //      certificate installed as a trusted Configuration Profile — this is
-  //      what lets a plain `fetch()` to `https://<printerIp>/...` succeed
-  //      instead of failing on an untrusted certificate. This is a one-time,
-  //      per-device setup step, same steps at every location.
-  //
-  // devid "local_printer" is the default device ID for a TM printer's own
-  // built-in printer service and normally does not need to be changed.
-  const DEVICE_ID = "local_printer";
-  const endpoint = `https://${printerIp}/cgi-bin/epos/service.cgi?devid=${DEVICE_ID}&timeout=10000`;
-
-  const esc = (s = "") =>
-    String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-
-  const itemLines = orderItems.map(li => {
-    const item = items.find(i => i.id === li.item_id);
-    const name = item?.name || "";
-    const qty = `x${li.quantity}`;
-    const pad = 32 - name.length - qty.length;
-    return `<text>${esc(name)}${" ".repeat(Math.max(1, pad))}${esc(qty)}&#10;</text>`;
-  }).join("\n          ");
-
-  const notesXml = order.notes
-    ? `<text>--------------------------------&#10;</text>
-          <text align="left">NOTES&#10;${esc(order.notes)}&#10;</text>`
-    : "";
-
-  // XML layout mirrors the previous ePOS-Device version field-for-field.
-  const xmlPayload = `<?xml version="1.0" encoding="UTF-8"?>
-<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/">
-  <s:Body>
-    <epos-print xmlns="http://www.epson-pos.com/schemas/2011/03/epos-print">
-      <text align="center" width="2" height="2" em="true">IAVARONE BROS.&#10;</text>
-      <text align="center" width="1" height="1" em="false">${esc(loc?.address || "")}&#10;${esc(loc?.city || "")}&#10;${esc(loc?.phone || "")}&#10;</text>
-      <text align="center">--------------------------------&#10;</text>
-      <text align="center">DAILY ORDER #&#10;</text>
-      <text align="center" width="3" height="3" em="true">${esc(order.daily_number)}&#10;</text>
-      <text align="center" width="1" height="1" em="false">--------------------------------&#10;</text>
-      <text align="left">CUSTOMER&#10;</text>
-      <text align="left" em="true">${esc(order.customer_name || "")}&#10;</text>
-      <text align="left" em="false">PHONE&#10;${esc(order.customer_phone || "")}&#10;PICKUP&#10;${esc(fmtDate(order.pickup_date))} at ${esc(fmtTime(order.pickup_time))}&#10;INVOICE&#10;#${esc(order.invoice_number)}&#10;</text>
-      <text align="left">--------------------------------&#10;</text>
-      <text align="left">ITEMS&#10;</text>
-      ${itemLines}
-      ${notesXml}
-      <text align="left">--------------------------------&#10;</text>
-      <text align="center">Taken by ${esc(takenBy)}&#10;</text>
-      <feed line="4"/>
-      <cut type="feed"/>
-    </epos-print>
-  </s:Body>
-</s:Envelope>`.trim();
-
   try {
-    const response = await fetch(endpoint, {
-      method: "POST",
-      headers: {
-        "Content-Type": "text/xml; charset=utf-8",
-        "If-Modified-Since": "Thu, 01 Jan 1970 00:00:00 GMT",
-        "SOAPAction": '""',
-      },
-      body: xmlPayload,
+    const res = await fetch('/api/print-relay', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ locationId: order.location_id, order, orderItems, items, loc }),
     });
-
-    const text = await response.text();
-    // ePOS-Print returns a SOAP response with a <response success="true|false">
-    // element. A non-2xx HTTP status or success="false" both mean the job
-    // did not go through, even though the network request itself succeeded.
-    const success = response.ok && /success="true"/i.test(text);
-    if (!success) {
-      throw new Error(
-        response.ok
-          ? "Printer rejected the job (check paper/cover/status)"
-          : `HTTP ${response.status}`
-      );
-    }
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data.ok) throw new Error(data.error || 'Print relay returned an error');
   } catch (err) {
-    console.error("ePOS-Print XML error:", err);
+    console.error('Print relay error:', err);
     const fallback = window.confirm(`Printer error: ${err.message}\n\nPrint via browser instead?`);
     if (fallback) printReceiptBrowser(order, orderItems, items, locs);
   }
