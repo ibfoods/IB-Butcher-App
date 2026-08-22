@@ -65,112 +65,95 @@ async function printReceipt(order, orderItems, items, locs, printerIps = {}) {
     return;
   }
 
-  // ePOS SDK is bundled in /public/epos-2.27.0.js and loaded via index.html
-  // No dynamic script injection needed — window.epson is always available
-  if (!window.epson) {
-    throw new Error("ePOS SDK not loaded. Please refresh the page and try again.");
-  }
+  // ── ePOS-Print XML over HTTPS ─────────────────────────────────────────────
+  // Uses Epson's ePOS-Print XML protocol (SOAP/HTTP POST to the printer's
+  // built-in web service), NOT the ePOS-Device WebSocket SDK. This is a
+  // simpler, plainer HTTP protocol with no separate SDK dependency.
+  //
+  // Requirements on the printer (same for every location, see
+  // PRINTER_SETUP_NEW_LOCATION.md for the full one-time setup checklist):
+  //   1. "ePOS-Print" service enabled in WebConfig (Advanced Settings >
+  //      TM-Intelligent > Services > ePOS-Print). This is mutually exclusive
+  //      with "ePOS-Device" — only one can be enabled at a time.
+  //   2. The printer's IP saved in Admin > Printers for that location.
+  //   3. The iPad/device printing must have the printer's self-signed
+  //      certificate installed as a trusted Configuration Profile — this is
+  //      what lets a plain `fetch()` to `https://<printerIp>/...` succeed
+  //      instead of failing on an untrusted certificate. This is a one-time,
+  //      per-device setup step, same steps at every location.
+  //
+  // devid "local_printer" is the default device ID for a TM printer's own
+  // built-in printer service and normally does not need to be changed.
+  const DEVICE_ID = "local_printer";
+  const endpoint = `https://${printerIp}/cgi-bin/epos/service.cgi?devid=${DEVICE_ID}&timeout=10000`;
 
-  const ePosDev = new window.epson.ePOSDevice();
+  const esc = (s = "") =>
+    String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
+  const itemLines = orderItems.map(li => {
+    const item = items.find(i => i.id === li.item_id);
+    const name = item?.name || "";
+    const qty = `x${li.quantity}`;
+    const pad = 32 - name.length - qty.length;
+    return `<text>${esc(name)}${" ".repeat(Math.max(1, pad))}${esc(qty)}&#10;</text>`;
+  }).join("\n          ");
+
+  const notesXml = order.notes
+    ? `<text>--------------------------------&#10;</text>
+          <text align="left">NOTES&#10;${esc(order.notes)}&#10;</text>`
+    : "";
+
+  // XML layout mirrors the previous ePOS-Device version field-for-field.
+  const xmlPayload = `<?xml version="1.0" encoding="UTF-8"?>
+<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/">
+  <s:Body>
+    <epos-print xmlns="http://www.epson-pos.com/schemas/2011/03/epos-print">
+      <text align="center" width="2" height="2" em="true">IAVARONE BROS.&#10;</text>
+      <text align="center" width="1" height="1" em="false">${esc(loc?.address || "")}&#10;${esc(loc?.city || "")}&#10;${esc(loc?.phone || "")}&#10;</text>
+      <text align="center">--------------------------------&#10;</text>
+      <text align="center">DAILY ORDER #&#10;</text>
+      <text align="center" width="3" height="3" em="true">${esc(order.daily_number)}&#10;</text>
+      <text align="center" width="1" height="1" em="false">--------------------------------&#10;</text>
+      <text align="left">CUSTOMER&#10;</text>
+      <text align="left" em="true">${esc(order.customer_name || "")}&#10;</text>
+      <text align="left" em="false">PHONE&#10;${esc(order.customer_phone || "")}&#10;PICKUP&#10;${esc(fmtDate(order.pickup_date))} at ${esc(fmtTime(order.pickup_time))}&#10;INVOICE&#10;#${esc(order.invoice_number)}&#10;</text>
+      <text align="left">--------------------------------&#10;</text>
+      <text align="left">ITEMS&#10;</text>
+      ${itemLines}
+      ${notesXml}
+      <text align="left">--------------------------------&#10;</text>
+      <text align="center">Taken by ${esc(takenBy)}&#10;</text>
+      <feed line="4"/>
+      <cut type="feed"/>
+    </epos-print>
+  </s:Body>
+</s:Envelope>`.trim();
 
   try {
-    // Connect to printer over SSL (wss://) on port 8043 — required because the
-    // app runs on HTTPS and browsers block a plain ws:// socket from an HTTPS
-    // page (mixed content), the same restriction that applies to script loading.
-    // Per Epson's official ePOS SDK reference, SSL/TLS is selected purely by port
-    // number (8043 = SSL/TLS, 8008 = HTTP) — there is no separate "ssl" option.
-    // NOTE: this requires the printer's Automatic Certificate Update feature to be
-    // enabled (WebConfig > Network Security > SSL/TLS), otherwise the printer's
-    // self-signed cert will cause the connection to fail silently with no warning
-    // dialog (unlike a normal page navigation, a background socket can't prompt
-    // the user to accept an untrusted certificate).
-    await new Promise((resolve, reject) => {
-      ePosDev.connect(printerIp, 8043, (result) => {
-        if (result === "OK" || result === "SSL_CONNECT_OK") resolve();
-        else reject(new Error(`Printer connection failed: ${result}`));
-      });
+    const response = await fetch(endpoint, {
+      method: "POST",
+      headers: {
+        "Content-Type": "text/xml; charset=utf-8",
+        "If-Modified-Since": "Thu, 01 Jan 1970 00:00:00 GMT",
+        "SOAPAction": '""',
+      },
+      body: xmlPayload,
     });
 
-    // Create printer device
-    const printer = await new Promise((resolve, reject) => {
-      ePosDev.createDevice("local_printer", ePosDev.DEVICE_TYPE_PRINTER,
-        { crypto: false, buffer: false },
-        (dev, retcode) => {
-          if (retcode === "OK") resolve(dev);
-          else reject(new Error(`Create device failed: ${retcode}`));
-        }
+    const text = await response.text();
+    // ePOS-Print returns a SOAP response with a <response success="true|false">
+    // element. A non-2xx HTTP status or success="false" both mean the job
+    // did not go through, even though the network request itself succeeded.
+    const success = response.ok && /success="true"/i.test(text);
+    if (!success) {
+      throw new Error(
+        response.ok
+          ? "Printer rejected the job (check paper/cover/status)"
+          : `HTTP ${response.status}`
       );
-    });
-
-    // Build receipt
-    printer.addTextAlign(printer.ALIGN_CENTER);
-    printer.addTextStyle(false, false, true, printer.COLOR_1);
-    printer.addTextSize(2, 2);
-    printer.addText("IAVARONE BROS.\n");
-    printer.addTextSize(1, 1);
-    printer.addTextStyle(false, false, false, printer.COLOR_1);
-    printer.addText(`${loc?.address || ""}\n`);
-    printer.addText(`${loc?.city || ""}\n`);
-    printer.addText(`${loc?.phone || ""}\n`);
-    printer.addText("--------------------------------\n");
-
-    printer.addTextAlign(printer.ALIGN_CENTER);
-    printer.addTextStyle(false, false, false, printer.COLOR_1);
-    printer.addText("DAILY ORDER #\n");
-    printer.addTextStyle(false, false, true, printer.COLOR_1);
-    printer.addTextSize(3, 3);
-    printer.addText(`${order.daily_number}\n`);
-    printer.addTextSize(1, 1);
-    printer.addTextStyle(false, false, false, printer.COLOR_1);
-    printer.addText("--------------------------------\n");
-
-    printer.addTextAlign(printer.ALIGN_LEFT);
-    printer.addText(`CUSTOMER\n`);
-    printer.addTextStyle(false, false, true, printer.COLOR_1);
-    printer.addText(`${order.customer_name || ""}\n`);
-    printer.addTextStyle(false, false, false, printer.COLOR_1);
-    printer.addText(`PHONE\n${order.customer_phone || ""}\n`);
-    printer.addText(`PICKUP\n${fmtDate(order.pickup_date)} at ${fmtTime(order.pickup_time)}\n`);
-    printer.addText(`INVOICE\n#${order.invoice_number}\n`);
-    printer.addText("--------------------------------\n");
-
-    printer.addText("ITEMS\n");
-    orderItems.forEach(li => {
-      const item = items.find(i => i.id === li.item_id);
-      const name = item?.name || "";
-      const qty = `x${li.quantity}`;
-      const pad = 32 - name.length - qty.length;
-      printer.addText(`${name}${" ".repeat(Math.max(1, pad))}${qty}\n`);
-    });
-
-    if (order.notes) {
-      printer.addText("--------------------------------\n");
-      printer.addText(`NOTES\n${order.notes}\n`);
     }
-
-    printer.addText("--------------------------------\n");
-    printer.addTextAlign(printer.ALIGN_CENTER);
-    printer.addText(`Taken by ${takenBy}\n`);
-    printer.addFeedLine(4);
-    printer.addCut(printer.CUT_PARTIAL);
-
-    // Send to printer
-    await new Promise((resolve, reject) => {
-      printer.onreceive = (res) => {
-        if (res.success) resolve();
-        else reject(new Error("Print job failed"));
-      };
-      printer.onerror = (err) => reject(new Error(`Printer error: ${err.status}`));
-      printer.send();
-    });
-
-    // Disconnect
-    ePosDev.deleteDevice(printer, () => {});
-    ePosDev.disconnect();
-
   } catch (err) {
-    try { ePosDev.disconnect(); } catch (_) {}
-    console.error("ePOS print error:", err);
+    console.error("ePOS-Print XML error:", err);
     const fallback = window.confirm(`Printer error: ${err.message}\n\nPrint via browser instead?`);
     if (fallback) printReceiptBrowser(order, orderItems, items, locs);
   }
