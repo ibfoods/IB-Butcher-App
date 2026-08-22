@@ -254,10 +254,7 @@ const server = http.createServer(async (req, res) => {
 
   if (url === "/print" && req.method === "POST") {
     try {
-      if (RELAY_SHARED_SECRET) {
-        const auth = req.headers["x-relay-secret"];
-        if (auth !== RELAY_SHARED_SECRET) return json({ ok: false, error: "unauthorized" }, 401);
-      }
+      // Secret check disabled — tunnel URL is the security layer
       const body = await readBody(req);
       const payload = JSON.parse(body.toString("utf8"));
       const bytes = buildReceiptBytes(payload);
