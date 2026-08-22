@@ -54,7 +54,7 @@ export default async function handler(req, res) {
       // Keep this reasonably short — if the relay/tunnel/printer chain is down,
       // fail fast so the app can offer the browser-print fallback quickly
       // instead of leaving the person staring at a spinner.
-      signal: AbortSignal.timeout(10000),
+      signal: AbortSignal.timeout(25000),
     });
 
     const relayJson = await relayRes.json().catch(() => ({}));
