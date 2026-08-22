@@ -86,7 +86,10 @@ function sendToPrinter(rawBytes) {
       log(`TCP connected -> ${PRINTER_IP}:${PRINTER_PORT}, sending ${rawBytes.length} bytes`);
       socket.write(rawBytes, (err) => {
         if (err) return done(err);
-        socket.once("close", () => done(null));
+        // Fire and forget — resolve immediately after write, don't wait for socket close.
+        // ESC/POS printers process the buffer internally; they don't send a response.
+        // Waiting for socket close causes false timeouts even though the job printed fine.
+        done(null);
       });
     });
     socket.on("timeout", () => done(new Error("TCP timeout - printer not responding")));
