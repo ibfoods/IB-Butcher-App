@@ -41,18 +41,52 @@ newhydepark@ibfoods.com.
   1. Browser print (popup, always-available fallback)
   2. Relay-based thermal print to Epson TM-T88VII (Woodbury) — see Printer section below
 - **Label printing:** two distinct labels —
-  1. **Customer label (Epson):** browser-based, one label per line item, 4.25in×2.75in
-     landscape, logo + customer name + boxed order # + item + 3-col footer
-     (pickup/invoice/location). "Print all labels for the day" button on Orders screen.
-     Prints via the Epson relay/browser-print path alongside the receipt.
-  2. **Production label (Zebra):** printed for internal/kitchen use, not customer-facing.
-     - **⚠️ Open issue (Aug 2026):** system/label setting is configured as 4x2.75, but the
-       actual physical Zebra label stock measures **2.5"** (not 2.75") on that dimension —
-       needs re-measurement and a corrected layout before the next print run.
-     - **Testing tool:** use [Labelary](https://labelary.com/viewer.html) (ZPL label viewer)
-       to preview label layout/sizing changes before printing physical labels.
-     - Zebra printers speak ZPL natively — confirm whether the current implementation
-       generates ZPL or another format once this is built/revisited.
+  1. **Customer receipt (Epson):** the printed receipt itself, via `printReceipt()` /
+     `printReceiptBrowser()` in `App.jsx` — goes through the relay/browser-print path
+     alongside the order confirmation. Not a "label" in the physical-sticker sense.
+  2. **Production label (Zebra GK420t):** one physical label per unit, applied to product
+     for kitchen/staff use. Current code (`labelHTML()` / `printLabels()` in `App.jsx`,
+     lines ~116–214) is browser-based (HTML/CSS popup print) — **being replaced with raw
+     ZPL**, decision made Sept 2026.
+     - **Printer:** Zebra GK420t, 203 dpi, **USB-connected directly to the desktop**
+       (not networked). Thermal transfer/direct thermal.
+     - **Why moving off browser print:** browser printing goes through the Windows/Zebra
+       OS print driver, which has its own margin/scaling/stock-size settings independent
+       of the app's CSS — this was the root cause of the earlier "configured 4x2.75 but
+       measures 2.5"" sizing bug. The app's own CSS was actually already correct at
+       4in×2.5in (`@page` and `.label` in `labelHTML()`) — **the mismatch was at the
+       Windows driver level, not in the code.**
+     - **New approach:** raw ZPL sent directly to the printer via **Zebra Browser Print**
+       (Zebra's official free local agent — runs on the desktop with the USB printer,
+       exposes a local JS API). ZPL addresses the print head in dots, bypassing the OS
+       driver entirely, so `^PW`/`^LL` can be set to match real stock size exactly.
+       203 dpi → 4in = 812 dots wide, 2.5in = 508 dots tall.
+     - **Template built and visually confirmed correct** (Sept 2026) at
+       `/zpl/production-label-template.zpl` in this repo. Includes:
+       - IB monogram logo, embedded as a 132×132-dot 1-bit `^GFA` graphic (converted from
+         the brand SVG via `cairosvg` → Pillow threshold → hex-packed bytes — see
+         `/zpl/logo_to_zpl.py`, reusable if the logo ever changes)
+       - Customer name + phone (under CUSTOMER label)
+       - Boxed daily order number (top right)
+       - Item name, notes
+       - 3-col footer: Pickup / Invoice / Location
+     - **Per-unit label logic (important, not yet implemented in app code):** each
+       physical unit needs its own label — e.g. an order line "2x Turkey" must produce
+       **2 separate identical labels**, not one label with a "2x" prefix. The old
+       `labelHTML()` did the latter (prefix-based). ZPL handles this via `^PQ{n},0,0,N`
+       (print quantity directive) at the end of the label — set `n` to the line item's
+       `quantity`. **Still to build:** the actual `printLabelsZPL()` function that loops
+       order line items, fills the ZPL template per item, and sends each via Zebra
+       Browser Print (`^PQ` for the copy count, or loop + reprint — either works).
+     - **Known open issue:** label appeared rotated when previewed in the Labelary
+       viewer (had to manually rotate to view correctly) — orientation not yet resolved.
+       Needs testing against the actual physical printer, or a ZPL rotation field
+       (`^POI`/`^FWX` etc.) — **next session should start here.**
+     - **Testing tool:** [Labelary](https://labelary.com/viewer.html) — paste ZPL, set
+       density **8 dpmm (203 dpi)**, size **4 x 2.5** (inches).
+     - **Not yet done:** bundle Zebra's `BrowserPrint-3.0.x.min.js` into `/public`
+       (same pattern as the Epson ePOS SDK), confirm Browser Print agent installed on
+       the Woodbury desktop, wire up `printLabelsZPL()`.
 - **Email receipts:** Gmail API OAuth per-location (not SMTP — Workspace blocked SMTP auth).
   Each location has its own connected Gmail account so receipts come from e.g.
   woodbury@ibfoods.com with correct Reply-To. PDF receipt (via `pdfkit`) is attached to every
@@ -140,5 +174,8 @@ iPad PWA → Vercel `/api/print-relay` → Cloudflare Tunnel → Node.js relay o
 - [ ] Build CloudPRNT integration in app for non-Woodbury locations
 - [ ] Build in-app operator setup wizard (Admin → Printers → Setup)
 - [ ] Layout polish + full QA pass
-- [ ] Fix Zebra **production** label size mismatch (configured 4x2.75, actual stock measures 2.5" — verify with Labelary preview at https://labelary.com/viewer.html before reprinting). Does not affect the Epson customer label.
+- [ ] Zebra production label: resolve rotation issue seen in Labelary preview, test on
+      physical GK420t, install Zebra Browser Print agent on Woodbury desktop, build
+      `printLabelsZPL()` in `App.jsx` (see Label printing section above for full context —
+      template is done and visually confirmed, integration is not).
 - [ ] Write PRINTER_SETUP_NEW_LOCATION.md and PRINTER_ARCHITECTURE.md in repo
