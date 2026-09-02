@@ -40,14 +40,19 @@ newhydepark@ibfoods.com.
 - **Receipt printing:** two paths —
   1. Browser print (popup, always-available fallback)
   2. Relay-based thermal print to Epson TM-T88VII (Woodbury) — see Printer section below
-- **Label printing:** browser-based, one label per line item, 4.25in×2.75in landscape,
-  logo + customer name + boxed order # + item + 3-col footer (pickup/invoice/location).
-  "Print all labels for the day" button on Orders screen.
-  - **⚠️ Open issue (Aug 2026):** system/label setting is configured as 4x2.75, but the
-    actual physical Zebra label stock measures **2.5"** (not 2.75") on that dimension —
-    needs re-measurement and a corrected layout before the next print run.
-  - **Testing tool:** use [Labelary](https://labelary.com/viewer.html) (ZPL label viewer)
-    to preview label layout/sizing changes before printing physical labels.
+- **Label printing:** two distinct labels —
+  1. **Customer label (Epson):** browser-based, one label per line item, 4.25in×2.75in
+     landscape, logo + customer name + boxed order # + item + 3-col footer
+     (pickup/invoice/location). "Print all labels for the day" button on Orders screen.
+     Prints via the Epson relay/browser-print path alongside the receipt.
+  2. **Production label (Zebra):** printed for internal/kitchen use, not customer-facing.
+     - **⚠️ Open issue (Aug 2026):** system/label setting is configured as 4x2.75, but the
+       actual physical Zebra label stock measures **2.5"** (not 2.75") on that dimension —
+       needs re-measurement and a corrected layout before the next print run.
+     - **Testing tool:** use [Labelary](https://labelary.com/viewer.html) (ZPL label viewer)
+       to preview label layout/sizing changes before printing physical labels.
+     - Zebra printers speak ZPL natively — confirm whether the current implementation
+       generates ZPL or another format once this is built/revisited.
 - **Email receipts:** Gmail API OAuth per-location (not SMTP — Workspace blocked SMTP auth).
   Each location has its own connected Gmail account so receipts come from e.g.
   woodbury@ibfoods.com with correct Reply-To. PDF receipt (via `pdfkit`) is attached to every
@@ -135,5 +140,5 @@ iPad PWA → Vercel `/api/print-relay` → Cloudflare Tunnel → Node.js relay o
 - [ ] Build CloudPRNT integration in app for non-Woodbury locations
 - [ ] Build in-app operator setup wizard (Admin → Printers → Setup)
 - [ ] Layout polish + full QA pass
-- [ ] Fix Zebra label size mismatch (configured 4x2.75, actual stock measures 2.5" — verify with Labelary preview at https://labelary.com/viewer.html before reprinting)
+- [ ] Fix Zebra **production** label size mismatch (configured 4x2.75, actual stock measures 2.5" — verify with Labelary preview at https://labelary.com/viewer.html before reprinting). Does not affect the Epson customer label.
 - [ ] Write PRINTER_SETUP_NEW_LOCATION.md and PRINTER_ARCHITECTURE.md in repo
