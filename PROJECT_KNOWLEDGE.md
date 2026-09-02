@@ -43,6 +43,11 @@ newhydepark@ibfoods.com.
 - **Label printing:** browser-based, one label per line item, 4.25in×2.75in landscape,
   logo + customer name + boxed order # + item + 3-col footer (pickup/invoice/location).
   "Print all labels for the day" button on Orders screen.
+  - **⚠️ Open issue (Aug 2026):** system/label setting is configured as 4x2.75, but the
+    actual physical Zebra label stock measures **2.5"** (not 2.75") on that dimension —
+    needs re-measurement and a corrected layout before the next print run.
+  - **Testing tool:** use [Labelary](https://labelary.com/viewer.html) (ZPL label viewer)
+    to preview label layout/sizing changes before printing physical labels.
 - **Email receipts:** Gmail API OAuth per-location (not SMTP — Workspace blocked SMTP auth).
   Each location has its own connected Gmail account so receipts come from e.g.
   woodbury@ibfoods.com with correct Reply-To. PDF receipt (via `pdfkit`) is attached to every
@@ -130,4 +135,5 @@ iPad PWA → Vercel `/api/print-relay` → Cloudflare Tunnel → Node.js relay o
 - [ ] Build CloudPRNT integration in app for non-Woodbury locations
 - [ ] Build in-app operator setup wizard (Admin → Printers → Setup)
 - [ ] Layout polish + full QA pass
+- [ ] Fix Zebra label size mismatch (configured 4x2.75, actual stock measures 2.5" — verify with Labelary preview at https://labelary.com/viewer.html before reprinting)
 - [ ] Write PRINTER_SETUP_NEW_LOCATION.md and PRINTER_ARCHITECTURE.md in repo
