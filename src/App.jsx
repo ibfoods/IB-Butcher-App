@@ -233,6 +233,7 @@ export default function App() {
   const [items, setItems] = useState([]);
   const [printerIps, setPrinterIps] = useState({});
   const [paperOn, setPaperOn] = useState({});
+  const [activeLoc, setActiveLoc] = useState("");
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
@@ -294,18 +295,18 @@ export default function App() {
   const logout = () => { setUser(null); setView("login"); };
 
   if (!ready) return <div style={{ padding: "3rem", textAlign: "center", color: "#888" }}>Loading...</div>;
-  if (view === "login") return <Login users={users} onLogin={u => { setUser(u); setView("orders"); }} />;
+  if (view === "login") return <Login users={users} onLogin={u => { setUser(u); setActiveLoc(u.location_id); setView("new_order"); }} />;
 
-  const loc = user.location_id ? LOCS.find(l => l.id === user.location_id) : null;
+  const loc = activeLoc ? LOCS.find(l => l.id === activeLoc) : null;
 
   return (
     <div style={{ fontFamily: "system-ui,sans-serif", fontSize: 14, background: "#f5f5f5", minHeight: "100vh" }}>
-      <Nav user={user} loc={loc} view={view} setView={setView} can={can} onLogout={logout} />
+      <Nav user={user} loc={loc} activeLoc={activeLoc} setActiveLoc={setActiveLoc} view={view} setView={setView} can={can} onLogout={logout} />
       <div style={{ maxWidth: 860, margin: "0 auto", padding: "1rem" }}>
-        {view === "orders" && <Orders user={user} orders={orders} orderItemsMap={orderItemsMap} refresh={refreshOrders} inv={inv} refreshInv={refreshInv} items={items} can={can} printerIps={printerIps} />}
-        {view === "new_order" && <NewOrder user={user} orders={orders} refresh={refreshOrders} inv={inv} refreshInv={refreshInv} items={items} setView={setView} printerIps={printerIps} />}
-        {view === "reports" && <Reports orders={orders} orderItemsMap={orderItemsMap} items={items} user={user} />}
-        {view === "inventory" && can("manager") && <Inventory inv={inv} refreshInv={refreshInv} items={items} user={user} />}
+        {view === "orders" && <Orders key={activeLoc} activeLoc={activeLoc} user={user} orders={orders} orderItemsMap={orderItemsMap} refresh={refreshOrders} inv={inv} refreshInv={refreshInv} items={items} can={can} printerIps={printerIps} />}
+        {view === "new_order" && <NewOrder key={activeLoc} activeLoc={activeLoc} user={user} orders={orders} refresh={refreshOrders} inv={inv} refreshInv={refreshInv} items={items} setView={setView} printerIps={printerIps} />}
+        {view === "reports" && <Reports key={activeLoc} activeLoc={activeLoc} orders={orders} orderItemsMap={orderItemsMap} items={items} user={user} />}
+        {view === "inventory" && can("manager") && <Inventory activeLoc={activeLoc} can={can} inv={inv} refreshInv={refreshInv} items={items} user={user} />}
         {view === "admin" && can("manager") && <Admin users={users} refreshUsers={refreshUsers} items={items} refreshItems={refreshItems} user={user} can={can} printerIps={printerIps} setPrinterIps={setPrinterIps} paperOn={paperOn} setPaperOn={setPaperOn} />}
       </div>
     </div>
@@ -399,7 +400,10 @@ function Login({ users, onLogin }) {
   );
 }
 
-function Nav({ user, loc, view, setView, can, onLogout }) {
+function Nav({ user, loc, activeLoc, setActiveLoc, view, setView, can, onLogout }) {
+  const homeLoc = LOCS.find(l => l.id === user.location_id);
+  const awayFromHome = activeLoc !== user.location_id;
+  const canSwitch = can("manager");
   const tabs = [
     { id: "orders", label: "Orders" },
     { id: "new_order", label: "New order" },
@@ -408,14 +412,24 @@ function Nav({ user, loc, view, setView, can, onLogout }) {
     ...(can("manager") ? [{ id: "admin", label: can("admin") ? "Admin" : "Users" }] : []),
   ];
   return (
-    <div style={{ background: "#fff", borderBottom: "1px solid #eee", padding: "10px 1rem 0" }}>
+    <div style={{ background: awayFromHome ? "#fff4e0" : "#fff", borderBottom: awayFromHome ? "2px solid #e65100" : "1px solid #eee", padding: "10px 1rem 0", transition: "background .15s" }}>
       <div style={{ maxWidth: 860, margin: "0 auto" }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <div style={{ width: 32, height: 32, borderRadius: "50%", background: "#8B1A2B", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, color: "#fff" }}>IB</div>
-            <div>
-              <p style={{ fontSize: 13, fontWeight: 500 }}>Iavarone Bros. {loc ? `— ${loc.name}` : "— All Locations"}</p>
-              <p style={{ fontSize: 11, color: "#888" }}>{user.name} · {ROLES[user.role]}</p>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8, gap: 10 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
+            <div style={{ width: 32, height: 32, borderRadius: "50%", background: "#8B1A2B", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, color: "#fff", flexShrink: 0 }}>IB</div>
+            <div style={{ minWidth: 0 }}>
+              {canSwitch ? (
+                <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                  <select value={activeLoc} onChange={e => setActiveLoc(e.target.value)} style={{ fontSize: 14, fontWeight: 600, padding: "4px 8px", border: `1px solid ${awayFromHome ? "#e65100" : "#ddd"}`, borderRadius: 7, background: "#fff", color: awayFromHome ? "#e65100" : "#222" }}>
+                    {LOCS.map(l => <option key={l.id} value={l.id}>{l.name}{l.id === user.location_id ? " (home)" : ""}</option>)}
+                    {can("admin") && <option value="">All stores</option>}
+                  </select>
+                  {awayFromHome && <span style={{ fontSize: 11, fontWeight: 600, color: "#e65100" }}>⚠ Not your home store ({homeLoc?.name})</span>}
+                </div>
+              ) : (
+                <p style={{ fontSize: 14, fontWeight: 600, margin: 0 }}>{loc?.name}</p>
+              )}
+              <p style={{ fontSize: 11, color: "#888", margin: 0 }}>{user.name} · {ROLES[user.role]}</p>
             </div>
           </div>
           <button onClick={onLogout} style={{ fontSize: 12, color: "#888", background: "none", border: "1px solid #ddd", borderRadius: 7, padding: "5px 10px", cursor: "pointer" }}>Sign out</button>
@@ -430,9 +444,9 @@ function Nav({ user, loc, view, setView, can, onLogout }) {
   );
 }
 
-function Orders({ user, orders, orderItemsMap, refresh, inv, refreshInv, items, can, printerIps = {} }) {
+function Orders({ activeLoc, user, orders, orderItemsMap, refresh, inv, refreshInv, items, can, printerIps = {} }) {
   const [search, setSearch] = useState("");
-  const [lf, setLf] = useState(user.location_id || "");
+  const [lf, setLf] = useState(activeLoc || "");
   const [df, setDf] = useState("");
   const [showCancelled, setShowCancelled] = useState(false);
   const [detail, setDetail] = useState(null);
@@ -621,7 +635,7 @@ function Orders({ user, orders, orderItemsMap, refresh, inv, refreshInv, items, 
                 </div>
                 <div style={{ marginBottom: 10 }}><p style={{ fontSize: 12, color: "#666", marginBottom: 4 }}>Phone</p><input autoComplete="off" value={editForm.customer_phone} onChange={e => setEditForm(f => ({ ...f, customer_phone: formatPhone(e.target.value) }))} style={inp} /></div>
                 <div style={{ marginBottom: 10 }}><p style={{ fontSize: 12, color: "#666", marginBottom: 4 }}>Email (optional)</p><input autoComplete="off" type="email" value={editForm.customer_email || ""} onChange={e => setEditForm(f => ({ ...f, customer_email: e.target.value }))} placeholder="customer@email.com" style={inp} /></div>
-                {!user.location_id && <div style={{ marginBottom: 10 }}><p style={{ fontSize: 12, color: "#666", marginBottom: 4 }}>Location</p><select value={editForm.location_id} onChange={e => setEditForm(f => ({ ...f, location_id: e.target.value }))} style={inp}>{LOCS.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}</select></div>}
+                {can("manager") && <div style={{ marginBottom: 10 }}><p style={{ fontSize: 12, color: "#666", marginBottom: 4 }}>Location</p><select value={editForm.location_id} onChange={e => setEditForm(f => ({ ...f, location_id: e.target.value }))} style={inp}>{LOCS.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}</select></div>}
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>
                   <div><p style={{ fontSize: 12, color: "#666", marginBottom: 4 }}>Pickup date</p><input autoComplete="off" type="date" value={editForm.pickup_date} onChange={e => setEditForm(f => ({ ...f, pickup_date: e.target.value }))} style={inp} /></div>
                   <div><p style={{ fontSize: 12, color: "#666", marginBottom: 4 }}>Pickup time</p><input autoComplete="off" type="time" value={editForm.pickup_time} onChange={e => setEditForm(f => ({ ...f, pickup_time: e.target.value }))} style={inp} /></div>
@@ -652,7 +666,7 @@ function Orders({ user, orders, orderItemsMap, refresh, inv, refreshInv, items, 
 
       <div style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap", alignItems: "center" }}>
         <input autoComplete="off" value={search} onChange={e => setSearch(e.target.value)} placeholder="Search name or invoice #" style={{ flex: 1, minWidth: 140, padding: "7px 10px", border: "1px solid #ddd", borderRadius: 7, fontSize: 13 }} />
-        {!user.location_id && <select value={lf} onChange={e => setLf(e.target.value)} style={{ minWidth: 130, padding: "7px 10px", border: "1px solid #ddd", borderRadius: 7, fontSize: 13 }}><option value="">All locations</option>{LOCS.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}</select>}
+        {!activeLoc && <select value={lf} onChange={e => setLf(e.target.value)} style={{ minWidth: 130, padding: "7px 10px", border: "1px solid #ddd", borderRadius: 7, fontSize: 13 }}><option value="">All locations</option>{LOCS.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}</select>}
         <input autoComplete="off" type="date" value={df} onChange={e => setDf(e.target.value)} style={{ minWidth: 130, padding: "7px 10px", border: "1px solid #ddd", borderRadius: 7, fontSize: 13 }} />
         <label style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12, color: "#888", cursor: "pointer", whiteSpace: "nowrap" }}>
           <input autoComplete="off" type="checkbox" checked={showCancelled} onChange={e => setShowCancelled(e.target.checked)} />
@@ -706,10 +720,10 @@ function Orders({ user, orders, orderItemsMap, refresh, inv, refreshInv, items, 
   );
 }
 
-function NewOrder({ user, orders, refresh, inv, refreshInv, items, setView, printerIps = {} }) {
-  const locs = user.location_id ? LOCS.filter(l => l.id === user.location_id) : LOCS;
+function NewOrder({ activeLoc, user, orders, refresh, inv, refreshInv, items, setView, printerIps = {} }) {
+  const locs = activeLoc ? LOCS.filter(l => l.id === activeLoc) : LOCS;
   const orderableItems = items.filter(i => i.active !== false);
-  const [locationId, setLocationId] = useState(user.location_id || locs[0]?.id || "");
+  const [locationId, setLocationId] = useState(activeLoc || locs[0]?.id || "");
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
   const [phone, setPhone] = useState("");
@@ -911,7 +925,7 @@ function NewOrder({ user, orders, refresh, inv, refreshInv, items, setView, prin
   return (
     <div style={{ maxWidth: 520 }}>
       <p style={{ fontSize: 15, fontWeight: 500, marginBottom: "1rem" }}>New order</p>
-      {!user.location_id && <F label="Location"><select value={locationId} onChange={e => setLocationId(e.target.value)} style={inp}>{LOCS.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}</select></F>}
+      {!activeLoc && <F label="Location"><select value={locationId} onChange={e => setLocationId(e.target.value)} style={inp}>{LOCS.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}</select></F>}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
         <F label="First name"><input autoComplete="off" value={firstName} onChange={e => setFirstName(e.target.value)} placeholder="First name" style={inp} /></F>
         <F label="Last name"><input autoComplete="off" value={lastName} onChange={e => setLastName(e.target.value)} placeholder="Last name" style={inp} /></F>
@@ -946,11 +960,11 @@ function NewOrder({ user, orders, refresh, inv, refreshInv, items, setView, prin
   );
 }
 
-function Reports({ orders, orderItemsMap, items, user }) {
+function Reports({ activeLoc, orders, orderItemsMap, items, user }) {
   const [type, setType] = useState("popularity");
   const [from, setFrom] = useState(tod());
   const [to, setTo] = useState(tod());
-  const [loc, setLoc] = useState(user.location_id || "");
+  const [loc, setLoc] = useState(activeLoc || "");
 
   const fil = orders.filter(o => {
     if (loc && o.location_id !== loc) return false;
@@ -1084,7 +1098,7 @@ function Reports({ orders, orderItemsMap, items, user }) {
           <option value="production">Production</option>
           <option value="contacts">Contact List</option>
         </select>
-        {type !== "contacts" && !user.location_id && <select value={loc} onChange={e => setLoc(e.target.value)} style={{ ...inp, minWidth: 130, width: "auto" }}><option value="">All locations</option>{LOCS.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}</select>}
+        {type !== "contacts" && !activeLoc && <select value={loc} onChange={e => setLoc(e.target.value)} style={{ ...inp, minWidth: 130, width: "auto" }}><option value="">All locations</option>{LOCS.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}</select>}
         {type !== "contacts" && <>
           <input autoComplete="off" type="date" value={from} onChange={e => setFrom(e.target.value)} style={{ ...inp, minWidth: 130, width: "auto" }} />
           <span style={{ color: "#888", fontSize: 12 }}>to</span>
@@ -1172,8 +1186,10 @@ function Reports({ orders, orderItemsMap, items, user }) {
   );
 }
 
-function Inventory({ inv, refreshInv, items, user }) {
-  const locs = user.location_id ? LOCS.filter(l => l.id === user.location_id) : LOCS;
+function Inventory({ activeLoc, can, inv, refreshInv, items, user }) {
+  // Managers may only adjust their own store; admins follow the store switcher ("All stores" shows every location)
+  const invLoc = can("admin") ? activeLoc : user.location_id;
+  const locs = invLoc ? LOCS.filter(l => l.id === invLoc) : LOCS;
   const parentItems = items.filter(i => i.active !== false && !i.parent_id);
   const childItems = items.filter(i => i.active !== false && i.parent_id);
 
