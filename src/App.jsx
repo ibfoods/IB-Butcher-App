@@ -23,6 +23,51 @@ function fmtDate(d) {
   return `${m}/${day}/${y.slice(2)}`;
 }
 
+// Parse casual time text ("1p", "1 pm", "130p", "1:30", "13:00", "noon") -> "HH:MM" 24h, or null
+function parseTime(raw) {
+  if (!raw) return null;
+  let t = raw.trim().toLowerCase().replace(/\./g, "");
+  if (t === "noon") return "12:00";
+  if (t === "midnight") return "00:00";
+  const m = t.match(/^(\d{1,2})(?::?(\d{2}))?\s*(a|p|am|pm)?$/);
+  if (!m) return null;
+  let h = parseInt(m[1], 10);
+  const min = m[2] ? parseInt(m[2], 10) : 0;
+  const ap = m[3] ? m[3][0] : null;
+  if (min > 59) return null;
+  if (ap) {
+    if (h < 1 || h > 12) return null;
+    if (ap === "p" && h !== 12) h += 12;
+    if (ap === "a" && h === 12) h = 0;
+  } else {
+    if (h > 23) return null;
+    // no am/pm given: 1-6 assume PM (store hours), 7-11 AM, 12+ as typed
+    if (h >= 1 && h <= 6) h += 12;
+  }
+  return `${String(h).padStart(2, "0")}:${String(min).padStart(2, "0")}`;
+}
+
+function TimeInput({ value, onChange, style }) {
+  const [text, setText] = useState(fmtTime(value));
+  const [bad, setBad] = useState(false);
+  useEffect(() => { setText(fmtTime(value)); setBad(false); }, [value]);
+  const commit = () => {
+    const p = parseTime(text);
+    if (p) { setBad(false); onChange(p); setText(fmtTime(p)); }
+    else if (text.trim() === "") { setBad(false); setText(fmtTime(value)); }
+    else setBad(true);
+  };
+  return (
+    <div>
+      <input autoComplete="off" value={text} onChange={e => { setText(e.target.value); setBad(false); }} onBlur={commit}
+        onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); commit(); e.target.blur(); } }}
+        onFocus={e => e.target.select()} placeholder="e.g. 1p, 130p, 11:30" inputMode="text"
+        style={{ ...inp, ...(style || {}), borderColor: bad ? "#c62828" : undefined }} />
+      {bad && <p style={{ fontSize: 11, color: "#c62828", margin: "3px 0 0" }}>Try 1p, 1:30 pm, 11:30, or noon</p>}
+    </div>
+  );
+}
+
 function fmtTime(t) {
   if (!t) return "";
   const [h, m] = t.split(":");
@@ -638,7 +683,7 @@ function Orders({ activeLoc, user, orders, orderItemsMap, refresh, inv, refreshI
                 {can("manager") && <div style={{ marginBottom: 10 }}><p style={{ fontSize: 12, color: "#666", marginBottom: 4 }}>Location</p><select value={editForm.location_id} onChange={e => setEditForm(f => ({ ...f, location_id: e.target.value }))} style={inp}>{LOCS.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}</select></div>}
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>
                   <div><p style={{ fontSize: 12, color: "#666", marginBottom: 4 }}>Pickup date</p><input autoComplete="off" type="date" value={editForm.pickup_date} onChange={e => setEditForm(f => ({ ...f, pickup_date: e.target.value }))} style={inp} /></div>
-                  <div><p style={{ fontSize: 12, color: "#666", marginBottom: 4 }}>Pickup time</p><input autoComplete="off" type="time" value={editForm.pickup_time} onChange={e => setEditForm(f => ({ ...f, pickup_time: e.target.value }))} style={inp} /></div>
+                  <div><p style={{ fontSize: 12, color: "#666", marginBottom: 4 }}>Pickup time</p><TimeInput value={editForm.pickup_time} onChange={v => setEditForm(f => ({ ...f, pickup_time: v }))} /></div>
                 </div>
                 <div style={{ marginBottom: 10 }}>
                   <p style={{ fontSize: 12, color: "#666", marginBottom: 6 }}>Items</p>
@@ -951,7 +996,7 @@ function NewOrder({ activeLoc, user, orders, refresh, inv, refreshInv, items, se
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
         <F label="Pickup date"><input autoComplete="off" type="date" value={pickupDate} onChange={e => setPickupDate(e.target.value)} style={inp} /></F>
-        <F label="Pickup time"><input autoComplete="off" type="time" value={pickupTime} onChange={e => setPickupTime(e.target.value)} style={inp} /></F>
+        <F label="Pickup time"><TimeInput value={pickupTime} onChange={setPickupTime} /></F>
       </div>
       <F label="Notes (optional)"><textarea autoComplete="off" value={notes} onChange={e => setNotes(e.target.value)} style={{ ...inp, height: 58, resize: "vertical" }} placeholder="Special instructions..." /></F>
       {err && <p style={{ color: "#c62828", fontSize: 12, marginBottom: 10 }}>{err}</p>}
