@@ -13,7 +13,9 @@ const ROLES = { master_admin: "Master Admin", admin: "Admin", manager: "Manager"
 const SCOLOR = { pending: { bg: "#fff8e1", txt: "#e65100" }, completed: { bg: "#e8f5e9", txt: "#2e7d32" }, cancelled: { bg: "#ffebee", txt: "#c62828" } };
 
 const digits = (p) => String(p || "").replace(/\D/g, "");
-const tod = () => new Date().toISOString().split("T")[0];
+// Local-date YYYY-MM-DD (never UTC — the store day rolls at local midnight)
+const ymd = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+const tod = () => ymd(new Date());
 const nowT = () => new Date().toTimeString().slice(0, 5);
 const inp = { width: "100%", boxSizing: "border-box", padding: "7px 10px", border: "1px solid #ddd", borderRadius: 7, fontSize: 13 };
 const LOGO_URL = "/logo.jpg";
@@ -507,7 +509,7 @@ function Orders({ activeLoc, user, orders, orderItemsMap, refresh, inv, refreshI
   const [range, setRange] = useState("today");   // today | tomorrow | upcoming | all | date
   const [df, setDf] = useState(tod());
   const [showCancelled, setShowCancelled] = useState(false);
-  const addDays = (d, n) => { const x = new Date(d + "T00:00:00"); x.setDate(x.getDate() + n); return x.toISOString().slice(0, 10); };
+  const addDays = (d, n) => { const x = new Date(d + "T00:00:00"); x.setDate(x.getDate() + n); return ymd(x); };
   const today = tod(); const tomorrow = addDays(today, 1);
   const pickRange = (r) => { setRange(r); setDf(r === "today" ? today : r === "tomorrow" ? tomorrow : ""); };
   const pickDate = (d) => { setDf(d); setRange(d === today ? "today" : d === tomorrow ? "tomorrow" : d ? "date" : "all"); };
@@ -1242,7 +1244,7 @@ function Reports({ activeLoc, orders, orderItemsMap, items, user }) {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    const dateStr = new Date().toISOString().split("T")[0];
+    const dateStr = tod();
     a.download = `IB_Contacts_${emailOnly ? "EmailOnly_" : ""}${dateStr}.csv`;
     a.click();
     URL.revokeObjectURL(url);
