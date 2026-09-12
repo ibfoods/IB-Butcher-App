@@ -313,34 +313,87 @@ export default function App() {
 }
 
 function Login({ users, onLogin }) {
+  const [mode, setMode] = useState("pin");
+  const [pin, setPin] = useState("");
+  const [shake, setShake] = useState(false);
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [err, setErr] = useState("");
-  const go = () => {
-    const u = users.find(u => u.username === username && u.password === password);
+
+  const tryPin = (p) => {
+    const u = users.find(u => u.pin === p);
+    if (!u) { setShake(true); setErr("PIN not recognized."); setTimeout(() => { setShake(false); setPin(""); }, 450); return; }
+    onLogin(u);
+  };
+  const press = (d) => {
+    if (pin.length >= 4) return;
+    setErr("");
+    const next = pin + d;
+    setPin(next);
+    if (next.length === 4) setTimeout(() => tryPin(next), 120);
+  };
+  const back = () => { setErr(""); setPin(p => p.slice(0, -1)); };
+
+  useEffect(() => {
+    if (mode !== "pin") return;
+    const h = (e) => {
+      if (/^[0-9]$/.test(e.key)) press(e.key);
+      else if (e.key === "Backspace") back();
+    };
+    window.addEventListener("keydown", h);
+    return () => window.removeEventListener("keydown", h);
+  });
+
+  const goPw = () => {
+    const u = users.find(u => u.username.toLowerCase() === username.trim().toLowerCase() && u.password === password);
     if (!u) { setErr("Invalid username or password."); return; }
     onLogin(u);
   };
+
+  const keyBtn = (label, onClick, extra = {}) => (
+    <button key={label} onClick={onClick} style={{ height: 64, borderRadius: 14, border: "1px solid #e3e3e3", background: "#fff", fontSize: 26, fontWeight: 500, color: "#222", cursor: "pointer", touchAction: "manipulation", ...extra }}>{label}</button>
+  );
+
   return (
     <div style={{ display: "flex", alignItems: "center", justifyContent: "center", minHeight: "100vh", padding: "2rem", background: "#f5f5f5" }}>
+      <style>{`@keyframes ibshake{0%,100%{transform:translateX(0)}20%,60%{transform:translateX(-8px)}40%,80%{transform:translateX(8px)}}`}</style>
       <div style={{ width: "100%", maxWidth: 320 }}>
-        <div style={{ textAlign: "center", marginBottom: "1.5rem" }}>
-          <img src="/logo.jpg" alt="Iavarone Bros." style={{ width: 100, height: 100, objectFit: "contain", display: "block", margin: "0 auto 10px" }} />
-          <p style={{ fontSize: 17, fontWeight: 500 }}>Iavarone Bros.</p>
-          <p style={{ color: "#888", fontSize: 12 }}>Butcher Order System</p>
+        <div style={{ textAlign: "center", marginBottom: "1.25rem" }}>
+          <img src="/logo.jpg" alt="Iavarone Bros." style={{ width: 90, height: 90, objectFit: "contain", display: "block", margin: "0 auto 8px" }} />
+          <p style={{ fontSize: 17, fontWeight: 500, margin: 0 }}>Iavarone Bros.</p>
+          <p style={{ color: "#888", fontSize: 12, margin: 0 }}>Butcher Order System</p>
         </div>
-        <div style={{ background: "#fff", border: "1px solid #e8e8e8", borderRadius: 10, padding: 20 }}>
-          <div style={{ marginBottom: 10 }}>
-            <p style={{ fontSize: 12, color: "#666", marginBottom: 4 }}>Username</p>
-            <input value={username} onChange={e => setUsername(e.target.value)} onKeyDown={e => e.key === "Enter" && go()} placeholder="Username" style={{ ...inp, fontSize: 16 }} />
+
+        {mode === "pin" ? (
+          <div style={{ background: "#fff", border: "1px solid #e8e8e8", borderRadius: 14, padding: 20 }}>
+            <p style={{ fontSize: 12, color: "#666", textAlign: "center", margin: "0 0 14px", textTransform: "uppercase", letterSpacing: 1 }}>Enter your PIN</p>
+            <div style={{ display: "flex", justifyContent: "center", gap: 16, marginBottom: 6, animation: shake ? "ibshake .4s" : "none" }}>
+              {[0, 1, 2, 3].map(i => <span key={i} style={{ width: 16, height: 16, borderRadius: "50%", border: "2px solid #8B1A2B", background: i < pin.length ? "#8B1A2B" : "transparent", transition: "background .1s" }} />)}
+            </div>
+            <p style={{ fontSize: 12, color: "#c62828", textAlign: "center", minHeight: 16, margin: "0 0 10px" }}>{err}</p>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10 }}>
+              {["1","2","3","4","5","6","7","8","9"].map(d => keyBtn(d, () => press(d)))}
+              {keyBtn("", null, { visibility: "hidden" })}
+              {keyBtn("0", () => press("0"))}
+              {keyBtn("⌫", back, { fontSize: 20, color: "#888" })}
+            </div>
+            <button onClick={() => { setMode("pw"); setErr(""); setPin(""); }} style={{ display: "block", width: "100%", marginTop: 16, background: "none", border: "none", color: "#8B1A2B", fontSize: 12, cursor: "pointer" }}>Sign in with password</button>
           </div>
-          <div style={{ marginBottom: 14 }}>
-            <p style={{ fontSize: 12, color: "#666", marginBottom: 4 }}>Password</p>
-            <input type="password" value={password} onChange={e => setPassword(e.target.value)} onKeyDown={e => e.key === "Enter" && go()} placeholder="Password" style={{ ...inp, fontSize: 16 }} />
+        ) : (
+          <div style={{ background: "#fff", border: "1px solid #e8e8e8", borderRadius: 14, padding: 20 }}>
+            <div style={{ marginBottom: 10 }}>
+              <p style={{ fontSize: 12, color: "#666", marginBottom: 4 }}>Username</p>
+              <input value={username} onChange={e => setUsername(e.target.value)} onKeyDown={e => e.key === "Enter" && goPw()} placeholder="Username" autoCapitalize="none" style={{ ...inp, fontSize: 16 }} />
+            </div>
+            <div style={{ marginBottom: 14 }}>
+              <p style={{ fontSize: 12, color: "#666", marginBottom: 4 }}>Password</p>
+              <input type="password" value={password} onChange={e => setPassword(e.target.value)} onKeyDown={e => e.key === "Enter" && goPw()} placeholder="Password" style={{ ...inp, fontSize: 16 }} />
+            </div>
+            {err && <p style={{ color: "#c62828", fontSize: 12, marginBottom: 10 }}>{err}</p>}
+            <button onClick={goPw} style={{ width: "100%", background: "#8B1A2B", color: "#fff", border: "none", borderRadius: 8, padding: 10, fontSize: 14, fontWeight: 500, cursor: "pointer" }}>Sign in</button>
+            <button onClick={() => { setMode("pin"); setErr(""); }} style={{ display: "block", width: "100%", marginTop: 12, background: "none", border: "none", color: "#8B1A2B", fontSize: 12, cursor: "pointer" }}>← Use PIN instead</button>
           </div>
-          {err && <p style={{ color: "#c62828", fontSize: 12, marginBottom: 10 }}>{err}</p>}
-          <button onClick={go} style={{ width: "100%", background: "#8B1A2B", color: "#fff", border: "none", borderRadius: 8, padding: 10, fontSize: 14, fontWeight: 500, cursor: "pointer" }}>Sign in</button>
-        </div>
+        )}
       </div>
     </div>
   );
