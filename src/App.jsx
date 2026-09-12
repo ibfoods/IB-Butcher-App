@@ -60,7 +60,7 @@ function TimeInput({ value, onChange, style }) {
   };
   return (
     <div>
-      <input autoComplete="off" value={text} onChange={e => { setText(e.target.value); setBad(false); }} onBlur={commit}
+      <input autoComplete="one-time-code" name="nofill" data-lpignore="true" data-1p-ignore="true" value={text} onChange={e => { setText(e.target.value); setBad(false); }} onBlur={commit}
         onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); commit(); e.target.blur(); } }}
         onFocus={e => e.target.select()} placeholder="e.g. 1p, 130p, 11:30" inputMode="text"
         style={{ ...inp, ...(style || {}), borderColor: bad ? "#c62828" : undefined }} />
@@ -435,7 +435,7 @@ function Login({ users, onLogin }) {
           <div style={{ background: "#fff", border: "1px solid #e8e8e8", borderRadius: 14, padding: 20 }}>
             <div style={{ marginBottom: 10 }}>
               <p style={{ fontSize: 12, color: "#666", marginBottom: 4 }}>Username</p>
-              <input autoComplete="off" value={username} onChange={e => setUsername(e.target.value)} onKeyDown={e => e.key === "Enter" && goPw()} placeholder="Username" autoCapitalize="none" style={{ ...inp, fontSize: 16 }} />
+              <input autoComplete="one-time-code" name="nofill" data-lpignore="true" data-1p-ignore="true" value={username} onChange={e => setUsername(e.target.value)} onKeyDown={e => e.key === "Enter" && goPw()} placeholder="Username" autoCapitalize="none" style={{ ...inp, fontSize: 16 }} />
             </div>
             <div style={{ marginBottom: 14 }}>
               <p style={{ fontSize: 12, color: "#666", marginBottom: 4 }}>Password</p>
@@ -635,7 +635,7 @@ function Orders({ activeLoc, user, orders, orderItemsMap, refresh, inv, refreshI
                 <div style={{ border: "1px solid #e8e8e8", borderRadius: 8, padding: "10px 12px", marginTop: 8 }}>
                   <p style={{ fontSize: 12, color: "#666", margin: "0 0 6px" }}>📧 Email receipt</p>
                   <div style={{ display: "flex", gap: 8 }}>
-                    <input autoComplete="off"
+                    <input autoComplete="one-time-code" name="nofill" data-lpignore="true" data-1p-ignore="true"
                       type="email"
                       value={detailEmail}
                       onChange={e => { setDetailEmail(e.target.value); setDetailEmailStatus(""); }}
@@ -682,14 +682,14 @@ function Orders({ activeLoc, user, orders, orderItemsMap, refresh, inv, refreshI
             ) : (
               <>
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>
-                  <div><p style={{ fontSize: 12, color: "#666", marginBottom: 4 }}>First name</p><input autoComplete="off" value={editForm.firstName} onChange={e => setEditForm(f => ({ ...f, firstName: e.target.value }))} style={inp} /></div>
-                  <div><p style={{ fontSize: 12, color: "#666", marginBottom: 4 }}>Last name</p><input autoComplete="off" value={editForm.lastName} onChange={e => setEditForm(f => ({ ...f, lastName: e.target.value }))} style={inp} /></div>
+                  <div><p style={{ fontSize: 12, color: "#666", marginBottom: 4 }}>First name</p><input autoComplete="one-time-code" name="nofill" data-lpignore="true" data-1p-ignore="true" value={editForm.firstName} onChange={e => setEditForm(f => ({ ...f, firstName: e.target.value }))} style={inp} /></div>
+                  <div><p style={{ fontSize: 12, color: "#666", marginBottom: 4 }}>Last name</p><input autoComplete="one-time-code" name="nofill" data-lpignore="true" data-1p-ignore="true" value={editForm.lastName} onChange={e => setEditForm(f => ({ ...f, lastName: e.target.value }))} style={inp} /></div>
                 </div>
-                <div style={{ marginBottom: 10 }}><p style={{ fontSize: 12, color: "#666", marginBottom: 4 }}>Phone</p><input autoComplete="off" value={editForm.customer_phone} onChange={e => setEditForm(f => ({ ...f, customer_phone: formatPhone(e.target.value) }))} style={inp} /></div>
-                <div style={{ marginBottom: 10 }}><p style={{ fontSize: 12, color: "#666", marginBottom: 4 }}>Email (optional)</p><input autoComplete="off" type="email" value={editForm.customer_email || ""} onChange={e => setEditForm(f => ({ ...f, customer_email: e.target.value }))} placeholder="customer@email.com" style={inp} /></div>
+                <div style={{ marginBottom: 10 }}><p style={{ fontSize: 12, color: "#666", marginBottom: 4 }}>Phone</p><input autoComplete="one-time-code" name="nofill" data-lpignore="true" data-1p-ignore="true" value={editForm.customer_phone} onChange={e => setEditForm(f => ({ ...f, customer_phone: formatPhone(e.target.value) }))} style={inp} /></div>
+                <div style={{ marginBottom: 10 }}><p style={{ fontSize: 12, color: "#666", marginBottom: 4 }}>Email (optional)</p><input autoComplete="one-time-code" name="nofill" data-lpignore="true" data-1p-ignore="true" type="email" value={editForm.customer_email || ""} onChange={e => setEditForm(f => ({ ...f, customer_email: e.target.value }))} placeholder="customer@email.com" style={inp} /></div>
                 {can("manager") && <div style={{ marginBottom: 10 }}><p style={{ fontSize: 12, color: "#666", marginBottom: 4 }}>Location</p><select value={editForm.location_id} onChange={e => setEditForm(f => ({ ...f, location_id: e.target.value }))} style={inp}>{LOCS.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}</select></div>}
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>
-                  <div><p style={{ fontSize: 12, color: "#666", marginBottom: 4 }}>Pickup date</p><input autoComplete="off" type="date" value={editForm.pickup_date} onChange={e => setEditForm(f => ({ ...f, pickup_date: e.target.value }))} style={inp} /></div>
+                  <div><p style={{ fontSize: 12, color: "#666", marginBottom: 4 }}>Pickup date</p><input autoComplete="one-time-code" name="nofill" data-lpignore="true" data-1p-ignore="true" type="date" value={editForm.pickup_date} onChange={e => setEditForm(f => ({ ...f, pickup_date: e.target.value }))} style={inp} /></div>
                   <div><p style={{ fontSize: 12, color: "#666", marginBottom: 4 }}>Pickup time</p><TimeInput value={editForm.pickup_time} onChange={v => setEditForm(f => ({ ...f, pickup_time: v }))} /></div>
                 </div>
                 <div style={{ marginBottom: 10 }}>
@@ -699,13 +699,13 @@ function Orders({ activeLoc, user, orders, orderItemsMap, refresh, inv, refreshI
                       <select value={li.item_id} onChange={e => setEditForm(f => ({ ...f, lineItems: f.lineItems.map((x, idx) => idx === i ? { ...x, item_id: e.target.value } : x) }))} style={{ ...inp, flex: 3 }}>
                         {items.filter(x => x.active !== false).map(x => <option key={x.id} value={x.id}>{x.name}</option>)}
                       </select>
-                      <input autoComplete="off" type="number" min={1} value={li.quantity} onChange={e => setEditForm(f => ({ ...f, lineItems: f.lineItems.map((x, idx) => idx === i ? { ...x, quantity: e.target.value } : x) }))} style={{ ...inp, width: 60, flex: "none" }} />
+                      <input autoComplete="one-time-code" name="nofill" data-lpignore="true" data-1p-ignore="true" type="number" min={1} value={li.quantity} onChange={e => setEditForm(f => ({ ...f, lineItems: f.lineItems.map((x, idx) => idx === i ? { ...x, quantity: e.target.value } : x) }))} style={{ ...inp, width: 60, flex: "none" }} />
                       {editForm.lineItems.length > 1 && <button onClick={() => setEditForm(f => ({ ...f, lineItems: f.lineItems.filter((_, idx) => idx !== i) }))} style={{ background: "none", border: "none", color: "#c62828", fontSize: 18, cursor: "pointer", padding: "0 4px" }}>×</button>}
                     </div>
                   ))}
                   <button onClick={() => setEditForm(f => ({ ...f, lineItems: [...f.lineItems, { item_id: items.filter(x => x.active !== false)[0]?.id || "", quantity: 1 }] }))} style={{ fontSize: 12, color: "#8B1A2B", background: "none", border: "1px solid #8B1A2B", borderRadius: 7, padding: "5px 12px", cursor: "pointer" }}>+ Add item</button>
                 </div>
-                <div style={{ marginBottom: 12 }}><p style={{ fontSize: 12, color: "#666", marginBottom: 4 }}>Notes</p><textarea autoComplete="off" value={editForm.notes} onChange={e => setEditForm(f => ({ ...f, notes: e.target.value }))} style={{ ...inp, height: 58, resize: "vertical" }} /></div>
+                <div style={{ marginBottom: 12 }}><p style={{ fontSize: 12, color: "#666", marginBottom: 4 }}>Notes</p><textarea autoComplete="one-time-code" name="nofill" data-lpignore="true" data-1p-ignore="true" value={editForm.notes} onChange={e => setEditForm(f => ({ ...f, notes: e.target.value }))} style={{ ...inp, height: 58, resize: "vertical" }} /></div>
                 <div style={{ display: "flex", gap: 8 }}>
                   <button onClick={saveEdit} style={{ flex: 1, background: "#8B1A2B", color: "#fff", border: "none", borderRadius: 8, padding: 9, fontSize: 13, cursor: "pointer" }}>Save changes</button>
                   <button onClick={() => setEditing(false)} style={{ flex: 1, background: "#fff", color: "#555", border: "1px solid #ddd", borderRadius: 8, padding: 9, fontSize: 13, cursor: "pointer" }}>Cancel</button>
@@ -717,11 +717,11 @@ function Orders({ activeLoc, user, orders, orderItemsMap, refresh, inv, refreshI
       )}
 
       <div style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap", alignItems: "center" }}>
-        <input autoComplete="off" value={search} onChange={e => setSearch(e.target.value)} placeholder="Search name or invoice #" style={{ flex: 1, minWidth: 140, padding: "7px 10px", border: "1px solid #ddd", borderRadius: 7, fontSize: 13 }} />
+        <input autoComplete="one-time-code" name="nofill" data-lpignore="true" data-1p-ignore="true" value={search} onChange={e => setSearch(e.target.value)} placeholder="Search name or invoice #" style={{ flex: 1, minWidth: 140, padding: "7px 10px", border: "1px solid #ddd", borderRadius: 7, fontSize: 13 }} />
         {!activeLoc && <select value={lf} onChange={e => setLf(e.target.value)} style={{ minWidth: 130, padding: "7px 10px", border: "1px solid #ddd", borderRadius: 7, fontSize: 13 }}><option value="">All locations</option>{LOCS.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}</select>}
-        <input autoComplete="off" type="date" value={df} onChange={e => setDf(e.target.value)} style={{ minWidth: 130, padding: "7px 10px", border: "1px solid #ddd", borderRadius: 7, fontSize: 13 }} />
+        <input autoComplete="one-time-code" name="nofill" data-lpignore="true" data-1p-ignore="true" type="date" value={df} onChange={e => setDf(e.target.value)} style={{ minWidth: 130, padding: "7px 10px", border: "1px solid #ddd", borderRadius: 7, fontSize: 13 }} />
         <label style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12, color: "#888", cursor: "pointer", whiteSpace: "nowrap" }}>
-          <input autoComplete="off" type="checkbox" checked={showCancelled} onChange={e => setShowCancelled(e.target.checked)} />
+          <input autoComplete="one-time-code" name="nofill" data-lpignore="true" data-1p-ignore="true" type="checkbox" checked={showCancelled} onChange={e => setShowCancelled(e.target.checked)} />
           Show cancelled
         </label>
         <button
@@ -969,7 +969,7 @@ function NewOrder({ activeLoc, user, orders, refresh, inv, refreshInv, items, se
                 </div>
               ) : (
                 <>
-                  <input autoComplete="off"
+                  <input autoComplete="one-time-code" name="nofill" data-lpignore="true" data-1p-ignore="true"
                     type="email"
                     inputMode="email"
                     value={confirmEmail}
@@ -1019,7 +1019,7 @@ function NewOrder({ activeLoc, user, orders, refresh, inv, refreshInv, items, se
       {!activeLoc && <F label="Location"><select value={locationId} onChange={e => setLocationId(e.target.value)} style={inp}>{LOCS.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}</select></F>}
       <div style={{ position: "relative", marginBottom: 12 }}>
         <p style={{ fontSize: 12, color: "#666", marginBottom: 4 }}>Find customer <span style={{ color: "#aaa" }}>(name, phone, or email)</span></p>
-        <input autoComplete="off" value={custQuery} onChange={e => setCustQuery(e.target.value)} placeholder="Start typing to search…" style={inp} />
+        <input autoComplete="one-time-code" name="nofill" data-lpignore="true" data-1p-ignore="true" value={custQuery} onChange={e => setCustQuery(e.target.value)} placeholder="Start typing to search…" style={inp} />
         {custResults.length > 0 && <div style={{ position: "absolute", left: 0, right: 0, top: "100%", zIndex: 20, background: "#fff", border: "1px solid #ddd", borderRadius: 8, boxShadow: "0 6px 20px rgba(0,0,0,.08)", overflow: "hidden" }}>
           {custResults.map(c => <div key={c.id} onClick={() => applyCustomer(c)} style={{ padding: "9px 12px", borderBottom: "1px solid #f0f0f0", cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
             <div><p style={{ fontSize: 13, fontWeight: 500, margin: 0 }}>{c.name}</p><p style={{ fontSize: 11, color: "#888", margin: 0 }}>{c.phone}{c.email ? ` · ${c.email}` : ""}</p></div>
@@ -1028,15 +1028,15 @@ function NewOrder({ activeLoc, user, orders, refresh, inv, refreshInv, items, se
         </div>}
       </div>
       <F label="Phone number">
-        <input autoComplete="off" inputMode="tel" value={phone} onChange={handlePhone} placeholder="(xxx) xxx-xxxx" style={{ ...inp, fontSize: 16 }} />
+        <input autoComplete="one-time-code" name="nofill" data-lpignore="true" data-1p-ignore="true" inputMode="tel" value={phone} onChange={handlePhone} placeholder="(xxx) xxx-xxxx" style={{ ...inp, fontSize: 16 }} />
         {matched && <p style={{ fontSize: 12, color: "#2e7d32", margin: "5px 0 0" }}>✓ Returning customer · {custOrderCount(matched)} previous order{custOrderCount(matched) === 1 ? "" : "s"}</p>}
         {!matched && digits(phone).length >= 10 && <p style={{ fontSize: 12, color: "#888", margin: "5px 0 0" }}>New customer</p>}
       </F>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-        <F label="First name"><input autoComplete="off" value={firstName} onChange={e => setFirstName(e.target.value)} placeholder="First name" style={inp} /></F>
-        <F label="Last name"><input autoComplete="off" value={lastName} onChange={e => setLastName(e.target.value)} placeholder="Last name" style={inp} /></F>
+        <F label="First name"><input autoComplete="one-time-code" name="nofill" data-lpignore="true" data-1p-ignore="true" value={firstName} onChange={e => setFirstName(e.target.value)} placeholder="First name" style={inp} /></F>
+        <F label="Last name"><input autoComplete="one-time-code" name="nofill" data-lpignore="true" data-1p-ignore="true" value={lastName} onChange={e => setLastName(e.target.value)} placeholder="Last name" style={inp} /></F>
       </div>
-      <F label="Customer email (optional)"><input autoComplete="off" type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="customer@email.com" style={inp} /></F>
+      <F label="Customer email (optional)"><input autoComplete="one-time-code" name="nofill" data-lpignore="true" data-1p-ignore="true" type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="customer@email.com" style={inp} /></F>
       <div style={{ marginBottom: 12 }}>
         <p style={{ fontSize: 12, color: "#666", marginBottom: 6 }}>Items</p>
         {lineItems.map((li, i) => {
@@ -1046,7 +1046,7 @@ function NewOrder({ activeLoc, user, orders, refresh, inv, refreshInv, items, se
               <select value={li.item_id} onChange={e => updateLineItem(i, "item_id", e.target.value)} style={{ ...inp, flex: 3 }}>
                 {orderableItems.map(x => <option key={x.id} value={x.id}>{x.name}</option>)}
               </select>
-              <input autoComplete="off" type="number" min={1} value={li.quantity} onChange={e => updateLineItem(i, "quantity", e.target.value)} style={{ ...inp, width: 60, flex: "none" }} />
+              <input autoComplete="one-time-code" name="nofill" data-lpignore="true" data-1p-ignore="true" type="number" min={1} value={li.quantity} onChange={e => updateLineItem(i, "quantity", e.target.value)} style={{ ...inp, width: 60, flex: "none" }} />
               {lineItems.length > 1 && <button onClick={() => removeLineItem(i)} style={{ background: "none", border: "none", color: "#c62828", fontSize: 18, cursor: "pointer", padding: "0 4px", flexShrink: 0 }}>×</button>}
             </div>
             {stock !== null && <p style={{ fontSize: 11, marginTop: 2, marginLeft: 2, color: stock <= 0 ? "#c62828" : stock <= 5 ? "#e65100" : "#2e7d32" }}>{stock <= 0 ? "⚠ Out of stock" : stock <= 5 ? `⚠ Low stock (${stock} left in pool)` : `${stock} in pool`}</p>}
@@ -1055,10 +1055,10 @@ function NewOrder({ activeLoc, user, orders, refresh, inv, refreshInv, items, se
         <button onClick={addLineItem} style={{ fontSize: 12, color: "#8B1A2B", background: "none", border: "1px solid #8B1A2B", borderRadius: 7, padding: "5px 12px", cursor: "pointer", marginTop: 2 }}>+ Add item</button>
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-        <F label="Pickup date"><input autoComplete="off" type="date" value={pickupDate} onChange={e => setPickupDate(e.target.value)} style={inp} /></F>
+        <F label="Pickup date"><input autoComplete="one-time-code" name="nofill" data-lpignore="true" data-1p-ignore="true" type="date" value={pickupDate} onChange={e => setPickupDate(e.target.value)} style={inp} /></F>
         <F label="Pickup time"><TimeInput value={pickupTime} onChange={setPickupTime} /></F>
       </div>
-      <F label="Notes (optional)"><textarea autoComplete="off" value={notes} onChange={e => setNotes(e.target.value)} style={{ ...inp, height: 58, resize: "vertical" }} placeholder="Special instructions..." /></F>
+      <F label="Notes (optional)"><textarea autoComplete="one-time-code" name="nofill" data-lpignore="true" data-1p-ignore="true" value={notes} onChange={e => setNotes(e.target.value)} style={{ ...inp, height: 58, resize: "vertical" }} placeholder="Special instructions..." /></F>
       {err && <p style={{ color: "#c62828", fontSize: 12, marginBottom: 10 }}>{err}</p>}
       <button onClick={submit} style={{ width: "100%", background: "#8B1A2B", color: "#fff", border: "none", borderRadius: 8, padding: 11, fontSize: 14, fontWeight: 500, cursor: "pointer" }}>Place order →</button>
     </div>
@@ -1095,10 +1095,10 @@ function Customers({ customers, refreshCustomers, orders, orderItemsMap, items, 
         <div style={{ background: "#fff", border: "1px solid #e8e8e8", borderRadius: 10, padding: 16, marginBottom: 14 }}>
           {edit ? (
             <div>
-              <F label="Name"><input autoComplete="off" value={edit.name} onChange={e => setEdit(f => ({ ...f, name: e.target.value }))} style={inp} /></F>
-              <F label="Phone"><input autoComplete="off" value={edit.phone} onChange={e => setEdit(f => ({ ...f, phone: formatPhone(e.target.value) }))} style={inp} /></F>
-              <F label="Email"><input autoComplete="off" type="email" value={edit.email || ""} onChange={e => setEdit(f => ({ ...f, email: e.target.value }))} style={inp} /></F>
-              <F label="Notes"><textarea autoComplete="off" value={edit.notes || ""} onChange={e => setEdit(f => ({ ...f, notes: e.target.value }))} rows={2} style={{ ...inp, fontFamily: "inherit" }} placeholder="Preferences, allergies, anything staff should know" /></F>
+              <F label="Name"><input autoComplete="one-time-code" name="nofill" data-lpignore="true" data-1p-ignore="true" value={edit.name} onChange={e => setEdit(f => ({ ...f, name: e.target.value }))} style={inp} /></F>
+              <F label="Phone"><input autoComplete="one-time-code" name="nofill" data-lpignore="true" data-1p-ignore="true" value={edit.phone} onChange={e => setEdit(f => ({ ...f, phone: formatPhone(e.target.value) }))} style={inp} /></F>
+              <F label="Email"><input autoComplete="one-time-code" name="nofill" data-lpignore="true" data-1p-ignore="true" type="email" value={edit.email || ""} onChange={e => setEdit(f => ({ ...f, email: e.target.value }))} style={inp} /></F>
+              <F label="Notes"><textarea autoComplete="one-time-code" name="nofill" data-lpignore="true" data-1p-ignore="true" value={edit.notes || ""} onChange={e => setEdit(f => ({ ...f, notes: e.target.value }))} rows={2} style={{ ...inp, fontFamily: "inherit" }} placeholder="Preferences, allergies, anything staff should know" /></F>
               {err && <p style={{ color: "#c62828", fontSize: 12, marginBottom: 8 }}>{err}</p>}
               <div style={{ display: "flex", gap: 8 }}>
                 <button onClick={save} style={{ fontSize: 12, padding: "7px 14px", background: "#8B1A2B", color: "#fff", border: "none", borderRadius: 7, cursor: "pointer" }}>Save</button>
@@ -1139,7 +1139,7 @@ function Customers({ customers, refreshCustomers, orders, orderItemsMap, items, 
   return (
     <div style={{ maxWidth: 560 }}>
       <p style={{ fontSize: 15, fontWeight: 500, marginBottom: "1rem" }}>Customers <span style={{ color: "#888", fontWeight: 400, fontSize: 13 }}>({customers.length})</span></p>
-      <input autoComplete="off" value={q} onChange={e => setQ(e.target.value)} placeholder="Search name, phone, or email" style={{ ...inp, fontSize: 15, marginBottom: 12 }} />
+      <input autoComplete="one-time-code" name="nofill" data-lpignore="true" data-1p-ignore="true" value={q} onChange={e => setQ(e.target.value)} placeholder="Search name, phone, or email" style={{ ...inp, fontSize: 15, marginBottom: 12 }} />
       {list.slice(0, 100).map(c => {
         const n = custOrders(c).length;
         return <div key={c.id} onClick={() => setSel(c)} style={{ background: "#fff", border: "1px solid #e8e8e8", borderRadius: 10, padding: "10px 14px", marginBottom: 6, cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
@@ -1296,9 +1296,9 @@ function Reports({ activeLoc, orders, orderItemsMap, items, user }) {
         </select>
         {type !== "contacts" && !activeLoc && <select value={loc} onChange={e => setLoc(e.target.value)} style={{ ...inp, minWidth: 130, width: "auto" }}><option value="">All locations</option>{LOCS.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}</select>}
         {type !== "contacts" && <>
-          <input autoComplete="off" type="date" value={from} onChange={e => setFrom(e.target.value)} style={{ ...inp, minWidth: 130, width: "auto" }} />
+          <input autoComplete="one-time-code" name="nofill" data-lpignore="true" data-1p-ignore="true" type="date" value={from} onChange={e => setFrom(e.target.value)} style={{ ...inp, minWidth: 130, width: "auto" }} />
           <span style={{ color: "#888", fontSize: 12 }}>to</span>
-          <input autoComplete="off" type="date" value={to} onChange={e => setTo(e.target.value)} style={{ ...inp, minWidth: 130, width: "auto" }} />
+          <input autoComplete="one-time-code" name="nofill" data-lpignore="true" data-1p-ignore="true" type="date" value={to} onChange={e => setTo(e.target.value)} style={{ ...inp, minWidth: 130, width: "auto" }} />
         </>}
         {type === "popularity" && <button onClick={printPop} style={{ ...inp, width: "auto", background: "#fff", cursor: "pointer" }}>Print</button>}
         {type === "production" && <>
@@ -1415,7 +1415,7 @@ function Inventory({ activeLoc, can, inv, refreshInv, items, user }) {
                 </div>
                 <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                   <button onClick={() => set(loc.id, parent.id, parentStock - 1)} style={{ width: 26, height: 26, borderRadius: "50%", background: "none", border: "1px solid #ddd", fontSize: 16, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>−</button>
-                  <input autoComplete="off" type="number" defaultValue={parentStock} key={`${loc.id}_${parent.id}_${parentStock}`} min={0} onBlur={e => set(loc.id, parent.id, e.target.value)} style={{ width: 50, textAlign: "center", padding: "5px", border: "1px solid #ddd", borderRadius: 7, fontSize: 13 }} />
+                  <input autoComplete="one-time-code" name="nofill" data-lpignore="true" data-1p-ignore="true" type="number" defaultValue={parentStock} key={`${loc.id}_${parent.id}_${parentStock}`} min={0} onBlur={e => set(loc.id, parent.id, e.target.value)} style={{ width: 50, textAlign: "center", padding: "5px", border: "1px solid #ddd", borderRadius: 7, fontSize: 13 }} />
                   <button onClick={() => set(loc.id, parent.id, parentStock + 1)} style={{ width: 26, height: 26, borderRadius: "50%", background: "none", border: "1px solid #ddd", fontSize: 16, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>+</button>
                   <span style={{ fontSize: 11, minWidth: 60, color: parentStock <= 0 ? "#c62828" : parentStock <= 5 ? "#e65100" : "#2e7d32" }}>{parentStock <= 0 ? "Out of stock" : parentStock <= 5 ? `Low (${parentStock})` : `${parentStock} units`}</span>
                 </div>
@@ -1435,7 +1435,7 @@ function Inventory({ activeLoc, can, inv, refreshInv, items, user }) {
               <span style={{ fontSize: 12, flex: 1 }}>{parent.name}</span>
               <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                 <button onClick={() => set(loc.id, parent.id, stock - 1)} style={{ width: 26, height: 26, borderRadius: "50%", background: "none", border: "1px solid #ddd", fontSize: 16, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>−</button>
-                <input autoComplete="off" type="number" defaultValue={stock} key={`${loc.id}_${parent.id}_${stock}`} min={0} onBlur={e => set(loc.id, parent.id, e.target.value)} style={{ width: 50, textAlign: "center", padding: "5px", border: "1px solid #ddd", borderRadius: 7, fontSize: 13 }} />
+                <input autoComplete="one-time-code" name="nofill" data-lpignore="true" data-1p-ignore="true" type="number" defaultValue={stock} key={`${loc.id}_${parent.id}_${stock}`} min={0} onBlur={e => set(loc.id, parent.id, e.target.value)} style={{ width: 50, textAlign: "center", padding: "5px", border: "1px solid #ddd", borderRadius: 7, fontSize: 13 }} />
                 <button onClick={() => set(loc.id, parent.id, stock + 1)} style={{ width: 26, height: 26, borderRadius: "50%", background: "none", border: "1px solid #ddd", fontSize: 16, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>+</button>
                 <span style={{ fontSize: 11, minWidth: 60, color: stock <= 0 ? "#c62828" : stock <= 5 ? "#e65100" : "#2e7d32" }}>{stock <= 0 ? "Out of stock" : stock <= 5 ? `Low (${stock})` : `${stock} units`}</span>
               </div>
@@ -1596,10 +1596,10 @@ function Admin({ users, refreshUsers, items, refreshItems, user, can, printerIps
         <div style={{ background: "#fff", border: "1px solid #e8e8e8", borderRadius: 10, padding: "1rem", marginBottom: "1rem" }}>
           <p style={{ fontSize: 13, fontWeight: 500, marginBottom: 10 }}>Add user</p>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 8 }}>
-            <input autoComplete="off" value={name} onChange={e => setName(e.target.value)} placeholder="Full name" style={inp} />
-            <input autoComplete="off" value={username} onChange={e => setUsername(e.target.value)} placeholder="Username" style={inp} />
+            <input autoComplete="one-time-code" name="nofill" data-lpignore="true" data-1p-ignore="true" value={name} onChange={e => setName(e.target.value)} placeholder="Full name" style={inp} />
+            <input autoComplete="one-time-code" name="nofill" data-lpignore="true" data-1p-ignore="true" value={username} onChange={e => setUsername(e.target.value)} placeholder="Username" style={inp} />
             <input autoComplete="new-password" type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="Password" style={inp} />
-            <input autoComplete="off" value={pin} inputMode="numeric" maxLength={4} onChange={e => setPin(e.target.value.replace(/\D/g, "").slice(0, 4))} placeholder="4-digit PIN (for quick login)" style={inp} />
+            <input autoComplete="one-time-code" name="nofill" data-lpignore="true" data-1p-ignore="true" value={pin} inputMode="numeric" maxLength={4} onChange={e => setPin(e.target.value.replace(/\D/g, "").slice(0, 4))} placeholder="4-digit PIN (for quick login)" style={inp} />
             <select value={isAdmin ? role : "clerk"} onChange={e => setRole(e.target.value)} disabled={!isAdmin} style={inp}>
               <option value="clerk">Clerk</option>
               {isAdmin && <option value="manager">Manager</option>}
@@ -1621,10 +1621,10 @@ function Admin({ users, refreshUsers, items, refreshItems, user, can, printerIps
             {isEditing ? (
               <div>
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 8 }}>
-                  <input autoComplete="off" value={editingUser.name} onChange={e => setEditingUser(f => ({ ...f, name: e.target.value }))} placeholder="Full name" style={inp} />
-                  <input autoComplete="off" value={editingUser.username} onChange={e => setEditingUser(f => ({ ...f, username: e.target.value }))} placeholder="Username" style={inp} />
+                  <input autoComplete="one-time-code" name="nofill" data-lpignore="true" data-1p-ignore="true" value={editingUser.name} onChange={e => setEditingUser(f => ({ ...f, name: e.target.value }))} placeholder="Full name" style={inp} />
+                  <input autoComplete="one-time-code" name="nofill" data-lpignore="true" data-1p-ignore="true" value={editingUser.username} onChange={e => setEditingUser(f => ({ ...f, username: e.target.value }))} placeholder="Username" style={inp} />
                   <input autoComplete="new-password" type="password" value={editingUser.password} onChange={e => setEditingUser(f => ({ ...f, password: e.target.value }))} placeholder="Password" style={inp} />
-                  <input autoComplete="off" value={editingUser.pin || ""} inputMode="numeric" maxLength={4} onChange={e => setEditingUser(f => ({ ...f, pin: e.target.value.replace(/\D/g, "").slice(0, 4) }))} placeholder="4-digit PIN" style={inp} />
+                  <input autoComplete="one-time-code" name="nofill" data-lpignore="true" data-1p-ignore="true" value={editingUser.pin || ""} inputMode="numeric" maxLength={4} onChange={e => setEditingUser(f => ({ ...f, pin: e.target.value.replace(/\D/g, "").slice(0, 4) }))} placeholder="4-digit PIN" style={inp} />
                   <select value={editingUser.role} onChange={e => setEditingUser(f => ({ ...f, role: e.target.value }))} disabled={!isAdmin} style={inp}>
                     <option value="clerk">Clerk</option>
                     {isAdmin && <option value="manager">Manager</option>}
@@ -1661,7 +1661,7 @@ function Admin({ users, refreshUsers, items, refreshItems, user, can, printerIps
         <div style={{ background: "#fff", border: "1px solid #e8e8e8", borderRadius: 10, padding: "1rem", marginBottom: "1rem" }}>
           <p style={{ fontSize: 13, fontWeight: 500, marginBottom: 10 }}>Add item</p>
           <div style={{ marginBottom: 8 }}>
-            <input autoComplete="off" value={ni.name} onChange={e => setNi(f => ({ ...f, name: e.target.value }))} placeholder="Item name" style={inp} onKeyDown={e => e.key === "Enter" && addI()} />
+            <input autoComplete="one-time-code" name="nofill" data-lpignore="true" data-1p-ignore="true" value={ni.name} onChange={e => setNi(f => ({ ...f, name: e.target.value }))} placeholder="Item name" style={inp} onKeyDown={e => e.key === "Enter" && addI()} />
           </div>
           <div style={{ marginBottom: 8 }}>
             <p style={{ fontSize: 11, color: "#666", marginBottom: 4 }}>Parent item (optional — for shared inventory pools)</p>
@@ -1678,7 +1678,7 @@ function Admin({ users, refreshUsers, items, refreshItems, user, can, printerIps
           <div key={parent.id} style={{ background: "#fff", border: "1px solid #e8e8e8", borderRadius: 10, padding: "10px 14px", marginBottom: 8, opacity: parent.active === false ? 0.45 : 1 }}>
             {editingItem?.id === parent.id ? (
               <div>
-                <input autoComplete="off" value={editingItem.name} onChange={e => setEditingItem(f => ({ ...f, name: e.target.value }))} style={{ ...inp, marginBottom: 8 }} />
+                <input autoComplete="one-time-code" name="nofill" data-lpignore="true" data-1p-ignore="true" value={editingItem.name} onChange={e => setEditingItem(f => ({ ...f, name: e.target.value }))} style={{ ...inp, marginBottom: 8 }} />
                 <div style={{ display: "flex", gap: 8 }}>
                   <button onClick={saveEditItem} style={{ fontSize: 12, padding: "6px 14px", background: "#8B1A2B", color: "#fff", border: "none", borderRadius: 7, cursor: "pointer" }}>Save</button>
                   <button onClick={() => setEditingItem(null)} style={{ fontSize: 12, padding: "6px 14px", background: "none", border: "1px solid #ddd", borderRadius: 7, cursor: "pointer" }}>Cancel</button>
@@ -1701,7 +1701,7 @@ function Admin({ users, refreshUsers, items, refreshItems, user, can, printerIps
                 <div key={child.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "3px 0", opacity: child.active === false ? 0.45 : 1 }}>
                   {editingItem?.id === child.id ? (
                     <div style={{ display: "flex", gap: 8, flex: 1 }}>
-                      <input autoComplete="off" value={editingItem.name} onChange={e => setEditingItem(f => ({ ...f, name: e.target.value }))} style={{ ...inp, flex: 1 }} />
+                      <input autoComplete="one-time-code" name="nofill" data-lpignore="true" data-1p-ignore="true" value={editingItem.name} onChange={e => setEditingItem(f => ({ ...f, name: e.target.value }))} style={{ ...inp, flex: 1 }} />
                       <select value={editingItem.parent_id || ""} onChange={e => setEditingItem(f => ({ ...f, parent_id: e.target.value || null }))} style={{ ...inp, flex: 1 }}>
                         <option value="">No parent</option>
                         {parentItems.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
@@ -1760,7 +1760,7 @@ function Admin({ users, refreshUsers, items, refreshItems, user, can, printerIps
                 </label>
               </div>
               <div style={{ display: "flex", gap: 8, alignItems: "center", opacity: paper ? 1 : 0.5 }}>
-                <input autoComplete="off"
+                <input autoComplete="one-time-code" name="nofill" data-lpignore="true" data-1p-ignore="true"
                   value={edited}
                   onChange={e => setPrinterEdits(prev => ({ ...prev, [loc.id]: e.target.value }))}
                   placeholder="e.g. 192.168.4.200"
