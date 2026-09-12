@@ -12,6 +12,7 @@ const LOCS = [
 const ROLES = { master_admin: "Master Admin", admin: "Admin", manager: "Manager", clerk: "Clerk" };
 const SCOLOR = { pending: { bg: "#fff8e1", txt: "#e65100" }, completed: { bg: "#e8f5e9", txt: "#2e7d32" }, cancelled: { bg: "#ffebee", txt: "#c62828" } };
 
+const digits = (p) => String(p || "").replace(/\D/g, "");
 const tod = () => new Date().toISOString().split("T")[0];
 const nowT = () => new Date().toTimeString().slice(0, 5);
 const inp = { width: "100%", boxSizing: "border-box", padding: "7px 10px", border: "1px solid #ddd", borderRadius: 7, fontSize: 13 };
@@ -276,6 +277,7 @@ export default function App() {
   const [orderItems, setOrderItems] = useState([]);
   const [inv, setInv] = useState({});
   const [items, setItems] = useState([]);
+  const [customers, setCustomers] = useState([]);
   const [printerIps, setPrinterIps] = useState({});
   const [paperOn, setPaperOn] = useState({});
   const [activeLoc, setActiveLoc] = useState("");
@@ -289,6 +291,8 @@ export default function App() {
       const { data: i } = await supabase.from("inventory").select("*");
       const { data: it } = await supabase.from("items").select("*");
       const { data: pr } = await supabase.from("printer_settings").select("*");
+      const { data: cu } = await supabase.from("customers").select("*");
+      setCustomers(cu || []);
       setUsers(u || []);
       setOrders(o || []);
       setOrderItems(oi || []);
@@ -328,6 +332,7 @@ export default function App() {
     setInv(m);
   }, []);
   const refreshItems = useCallback(async () => { const { data } = await supabase.from("items").select("*"); setItems(data || []); }, []);
+  const refreshCustomers = useCallback(async () => { const { data } = await supabase.from("customers").select("*"); setCustomers(data || []); }, []);
   const refreshUsers = useCallback(async () => { const { data } = await supabase.from("users").select("*"); setUsers(data || []); }, []);
 
   const orderItemsMap = {};
@@ -349,7 +354,8 @@ export default function App() {
       <Nav user={user} loc={loc} activeLoc={activeLoc} setActiveLoc={setActiveLoc} view={view} setView={setView} can={can} onLogout={logout} />
       <div style={{ maxWidth: 860, margin: "0 auto", padding: "1rem" }}>
         {view === "orders" && <Orders key={activeLoc} activeLoc={activeLoc} user={user} orders={orders} orderItemsMap={orderItemsMap} refresh={refreshOrders} inv={inv} refreshInv={refreshInv} items={items} can={can} printerIps={printerIps} paperOn={paperOn} />}
-        {view === "new_order" && <NewOrder key={activeLoc} activeLoc={activeLoc} user={user} orders={orders} refresh={refreshOrders} inv={inv} refreshInv={refreshInv} items={items} setView={setView} printerIps={printerIps} paperOn={paperOn} />}
+        {view === "new_order" && <NewOrder key={activeLoc} activeLoc={activeLoc} user={user} orders={orders} refresh={refreshOrders} inv={inv} refreshInv={refreshInv} items={items} setView={setView} printerIps={printerIps} paperOn={paperOn} customers={customers} refreshCustomers={refreshCustomers} />}
+        {view === "customers" && <Customers customers={customers} refreshCustomers={refreshCustomers} orders={orders} orderItemsMap={orderItemsMap} items={items} activeLoc={activeLoc} />}
         {view === "reports" && <Reports key={activeLoc} activeLoc={activeLoc} orders={orders} orderItemsMap={orderItemsMap} items={items} user={user} />}
         {view === "inventory" && can("manager") && <Inventory activeLoc={activeLoc} can={can} inv={inv} refreshInv={refreshInv} items={items} user={user} />}
         {view === "admin" && can("manager") && <Admin users={users} refreshUsers={refreshUsers} items={items} refreshItems={refreshItems} user={user} can={can} printerIps={printerIps} setPrinterIps={setPrinterIps} paperOn={paperOn} setPaperOn={setPaperOn} />}
@@ -452,6 +458,7 @@ function Nav({ user, loc, activeLoc, setActiveLoc, view, setView, can, onLogout 
   const tabs = [
     { id: "orders", label: "Orders" },
     { id: "new_order", label: "New order" },
+    { id: "customers", label: "Customers" },
     { id: "reports", label: "Reports" },
     ...(can("manager") ? [{ id: "inventory", label: "Inventory" }] : []),
     ...(can("manager") ? [{ id: "admin", label: can("admin") ? "Admin" : "Users" }] : []),
@@ -765,7 +772,7 @@ function Orders({ activeLoc, user, orders, orderItemsMap, refresh, inv, refreshI
   );
 }
 
-function NewOrder({ activeLoc, user, orders, refresh, inv, refreshInv, items, setView, printerIps = {}, paperOn = {} }) {
+function NewOrder({ activeLoc, user, orders, refresh, inv, refreshInv, items, setView, printerIps = {}, paperOn = {}, customers = [], refreshCustomers }) {
   const locs = activeLoc ? LOCS.filter(l => l.id === activeLoc) : LOCS;
   const orderableItems = items.filter(i => i.active !== false);
   const [locationId, setLocationId] = useState(activeLoc || locs[0]?.id || "");
@@ -786,7 +793,31 @@ function NewOrder({ activeLoc, user, orders, refresh, inv, refreshInv, items, se
   const [emailSending, setEmailSending] = useState(false);
   const [emailStatus, setEmailStatus] = useState(""); // "sent" | "error" | ""
 
-  const handlePhone = e => setPhone(formatPhone(e.target.value));
+  const [matched, setMatched] = useState(null);   // customer record auto-matched by phone
+  const [custQuery, setCustQuery] = useState("");
+  const custOrderCount = (c) => orders.filter(o => o.customer_id === c.id).length;
+  const applyCustomer = (c) => {
+    setMatched(c);
+    setPhone(formatPhone(c.phone));
+    setFirstName(c.first_name || (c.name || "").split(" ")[0] || "");
+    setLastName(c.last_name || (c.name || "").split(" ").slice(1).join(" ") || "");
+    if (c.email) setEmail(c.email);
+    setCustQuery("");
+  };
+  const handlePhone = e => {
+    const v = formatPhone(e.target.value);
+    setPhone(v);
+    const d = digits(v);
+    if (d.length >= 10) {
+      const c = customers.find(x => x.phone_digits === d);
+      if (c && c.id !== matched?.id) applyCustomer(c);
+      else if (!c) setMatched(null);
+    } else setMatched(null);
+  };
+  const custResults = custQuery.trim().length >= 2 ? customers.filter(c => {
+    const q = custQuery.trim().toLowerCase(); const qd = digits(q);
+    return (c.name || "").toLowerCase().includes(q) || (qd.length >= 3 && (c.phone_digits || "").includes(qd)) || (c.email || "").toLowerCase().includes(q);
+  }).slice(0, 8) : [];
   const addLineItem = () => setLineItems(li => [...li, { item_id: orderableItems[0]?.id || "", quantity: 1 }]);
   const removeLineItem = i => setLineItems(li => li.filter((_, idx) => idx !== i));
   const updateLineItem = (i, field, val) => setLineItems(li => li.map((x, idx) => idx === i ? { ...x, [field]: val } : x));
@@ -833,7 +864,22 @@ function NewOrder({ activeLoc, user, orders, refresh, inv, refreshInv, items, se
       created_at: new Date().toISOString()
     };
 
+    // Create or update the customer record (phone is the key) and link the order
+    try {
+      const d = digits(phone);
+      const existing = customers.find(c => c.phone_digits === d);
+      const custPayload = { phone, name: customerName, first_name: firstName.trim(), last_name: lastName.trim(), email: email.trim() || existing?.email || null, updated_at: new Date().toISOString() };
+      if (existing) {
+        await supabase.from("customers").update(custPayload).eq("id", existing.id);
+        newOrder.customer_id = existing.id;
+      } else {
+        const { data: created } = await supabase.from("customers").insert({ ...custPayload, home_location_id: locationId }).select("id").single();
+        if (created) newOrder.customer_id = created.id;
+      }
+    } catch (e) { console.error("customer upsert failed", e); }
+
     await supabase.from("orders").insert(newOrder);
+    if (refreshCustomers) await refreshCustomers();
 
     const orderItemRows = lineItems.map(li => ({
       order_id: newOrder.id,
@@ -971,11 +1017,25 @@ function NewOrder({ activeLoc, user, orders, refresh, inv, refreshInv, items, se
     <div style={{ maxWidth: 520 }}>
       <p style={{ fontSize: 15, fontWeight: 500, marginBottom: "1rem" }}>New order</p>
       {!activeLoc && <F label="Location"><select value={locationId} onChange={e => setLocationId(e.target.value)} style={inp}>{LOCS.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}</select></F>}
+      <div style={{ position: "relative", marginBottom: 12 }}>
+        <p style={{ fontSize: 12, color: "#666", marginBottom: 4 }}>Find customer <span style={{ color: "#aaa" }}>(name, phone, or email)</span></p>
+        <input autoComplete="off" value={custQuery} onChange={e => setCustQuery(e.target.value)} placeholder="Start typing to search…" style={inp} />
+        {custResults.length > 0 && <div style={{ position: "absolute", left: 0, right: 0, top: "100%", zIndex: 20, background: "#fff", border: "1px solid #ddd", borderRadius: 8, boxShadow: "0 6px 20px rgba(0,0,0,.08)", overflow: "hidden" }}>
+          {custResults.map(c => <div key={c.id} onClick={() => applyCustomer(c)} style={{ padding: "9px 12px", borderBottom: "1px solid #f0f0f0", cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <div><p style={{ fontSize: 13, fontWeight: 500, margin: 0 }}>{c.name}</p><p style={{ fontSize: 11, color: "#888", margin: 0 }}>{c.phone}{c.email ? ` · ${c.email}` : ""}</p></div>
+            <span style={{ fontSize: 11, color: "#888" }}>{custOrderCount(c)} order{custOrderCount(c) === 1 ? "" : "s"}</span>
+          </div>)}
+        </div>}
+      </div>
+      <F label="Phone number">
+        <input autoComplete="off" inputMode="tel" value={phone} onChange={handlePhone} placeholder="(xxx) xxx-xxxx" style={{ ...inp, fontSize: 16 }} />
+        {matched && <p style={{ fontSize: 12, color: "#2e7d32", margin: "5px 0 0" }}>✓ Returning customer · {custOrderCount(matched)} previous order{custOrderCount(matched) === 1 ? "" : "s"}</p>}
+        {!matched && digits(phone).length >= 10 && <p style={{ fontSize: 12, color: "#888", margin: "5px 0 0" }}>New customer</p>}
+      </F>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
         <F label="First name"><input autoComplete="off" value={firstName} onChange={e => setFirstName(e.target.value)} placeholder="First name" style={inp} /></F>
         <F label="Last name"><input autoComplete="off" value={lastName} onChange={e => setLastName(e.target.value)} placeholder="Last name" style={inp} /></F>
       </div>
-      <F label="Phone number"><input autoComplete="off" value={phone} onChange={handlePhone} placeholder="(xxx) xxx-xxxx" style={inp} /></F>
       <F label="Customer email (optional)"><input autoComplete="off" type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="customer@email.com" style={inp} /></F>
       <div style={{ marginBottom: 12 }}>
         <p style={{ fontSize: 12, color: "#666", marginBottom: 6 }}>Items</p>
@@ -1001,6 +1061,97 @@ function NewOrder({ activeLoc, user, orders, refresh, inv, refreshInv, items, se
       <F label="Notes (optional)"><textarea autoComplete="off" value={notes} onChange={e => setNotes(e.target.value)} style={{ ...inp, height: 58, resize: "vertical" }} placeholder="Special instructions..." /></F>
       {err && <p style={{ color: "#c62828", fontSize: 12, marginBottom: 10 }}>{err}</p>}
       <button onClick={submit} style={{ width: "100%", background: "#8B1A2B", color: "#fff", border: "none", borderRadius: 8, padding: 11, fontSize: 14, fontWeight: 500, cursor: "pointer" }}>Place order →</button>
+    </div>
+  );
+}
+
+
+function Customers({ customers, refreshCustomers, orders, orderItemsMap, items, activeLoc }) {
+  const [q, setQ] = useState("");
+  const [sel, setSel] = useState(null);
+  const [edit, setEdit] = useState(null);
+  const [err, setErr] = useState("");
+  const custOrders = (c) => orders.filter(o => o.customer_id === c.id).sort((a, b) => (b.pickup_date || "").localeCompare(a.pickup_date || "") || (b.invoice_number || 0) - (a.invoice_number || 0));
+  const list = customers.filter(c => {
+    if (!q.trim()) return true;
+    const t = q.trim().toLowerCase(); const d = digits(t);
+    return (c.name || "").toLowerCase().includes(t) || (d.length >= 3 && (c.phone_digits || "").includes(d)) || (c.email || "").toLowerCase().includes(t);
+  }).sort((a, b) => (a.name || "").localeCompare(b.name || ""));
+
+  const save = async () => {
+    if (!edit.name?.trim() || !digits(edit.phone)) { setErr("Name and phone are required."); return; }
+    const parts = edit.name.trim().split(" ");
+    const { error } = await supabase.from("customers").update({ name: edit.name.trim(), first_name: parts[0], last_name: parts.slice(1).join(" ") || null, phone: formatPhone(edit.phone), email: edit.email?.trim() || null, notes: edit.notes?.trim() || null, updated_at: new Date().toISOString() }).eq("id", edit.id);
+    if (error) { setErr(error.message.includes("phone_digits") ? "Another customer already has that phone number." : error.message); return; }
+    await refreshCustomers(); setSel({ ...edit }); setEdit(null); setErr("");
+  };
+
+  if (sel) {
+    const c = customers.find(x => x.id === sel.id) || sel;
+    const os = custOrders(c);
+    return (
+      <div style={{ maxWidth: 560 }}>
+        <button onClick={() => { setSel(null); setEdit(null); }} style={{ background: "none", border: "none", color: "#8B1A2B", fontSize: 13, cursor: "pointer", padding: 0, marginBottom: 10 }}>← All customers</button>
+        <div style={{ background: "#fff", border: "1px solid #e8e8e8", borderRadius: 10, padding: 16, marginBottom: 14 }}>
+          {edit ? (
+            <div>
+              <F label="Name"><input autoComplete="off" value={edit.name} onChange={e => setEdit(f => ({ ...f, name: e.target.value }))} style={inp} /></F>
+              <F label="Phone"><input autoComplete="off" value={edit.phone} onChange={e => setEdit(f => ({ ...f, phone: formatPhone(e.target.value) }))} style={inp} /></F>
+              <F label="Email"><input autoComplete="off" type="email" value={edit.email || ""} onChange={e => setEdit(f => ({ ...f, email: e.target.value }))} style={inp} /></F>
+              <F label="Notes"><textarea autoComplete="off" value={edit.notes || ""} onChange={e => setEdit(f => ({ ...f, notes: e.target.value }))} rows={2} style={{ ...inp, fontFamily: "inherit" }} placeholder="Preferences, allergies, anything staff should know" /></F>
+              {err && <p style={{ color: "#c62828", fontSize: 12, marginBottom: 8 }}>{err}</p>}
+              <div style={{ display: "flex", gap: 8 }}>
+                <button onClick={save} style={{ fontSize: 12, padding: "7px 14px", background: "#8B1A2B", color: "#fff", border: "none", borderRadius: 7, cursor: "pointer" }}>Save</button>
+                <button onClick={() => { setEdit(null); setErr(""); }} style={{ fontSize: 12, padding: "7px 14px", background: "none", border: "1px solid #ddd", borderRadius: 7, cursor: "pointer" }}>Cancel</button>
+              </div>
+            </div>
+          ) : (
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10 }}>
+              <div>
+                <p style={{ fontSize: 17, fontWeight: 600, margin: 0 }}>{c.name}</p>
+                <p style={{ fontSize: 13, color: "#555", margin: "3px 0 0" }}>{c.phone}{c.email ? ` · ${c.email}` : ""}</p>
+                {c.notes && <p style={{ fontSize: 12, color: "#8B1A2B", margin: "6px 0 0", background: "#faf5f6", padding: "6px 8px", borderRadius: 6 }}>{c.notes}</p>}
+                <p style={{ fontSize: 11, color: "#888", margin: "8px 0 0" }}>{os.length} order{os.length === 1 ? "" : "s"}{c.home_location_id ? ` · usually ${LOCS.find(l => l.id === c.home_location_id)?.name}` : ""}</p>
+              </div>
+              <button onClick={() => setEdit({ ...c })} style={{ fontSize: 12, color: "#8B1A2B", background: "none", border: "1px solid #8B1A2B", borderRadius: 7, padding: "5px 12px", cursor: "pointer", whiteSpace: "nowrap" }}>Edit</button>
+            </div>
+          )}
+        </div>
+        <p style={{ fontSize: 12, color: "#666", textTransform: "uppercase", letterSpacing: 1, marginBottom: 8 }}>Order history</p>
+        {os.length === 0 && <p style={{ color: "#888", fontSize: 13 }}>No orders yet.</p>}
+        {os.map(o => {
+          const lis = orderItemsMap[o.id] || [];
+          const summary = lis.map(li => `${items.find(i => i.id === li.item_id)?.name || "?"} ×${li.quantity}`).join(", ");
+          const sc = SCOLOR[o.status] || SCOLOR.pending;
+          return <div key={o.id} style={{ background: "#fff", border: "1px solid #e8e8e8", borderRadius: 10, padding: "10px 14px", marginBottom: 6, display: "flex", justifyContent: "space-between", gap: 10 }}>
+            <div style={{ minWidth: 0 }}>
+              <p style={{ fontSize: 13, fontWeight: 500, margin: 0 }}>{fmtDate(o.pickup_date)} {fmtTime(o.pickup_time)} · #{o.invoice_number}</p>
+              <p style={{ fontSize: 12, color: "#888", margin: "2px 0 0", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{summary}</p>
+              <p style={{ fontSize: 11, color: "#aaa", margin: "2px 0 0" }}>{LOCS.find(l => l.id === o.location_id)?.name}</p>
+            </div>
+            <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 5, background: sc.bg, color: sc.txt, fontWeight: 500, alignSelf: "flex-start", whiteSpace: "nowrap" }}>{o.status}</span>
+          </div>;
+        })}
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ maxWidth: 560 }}>
+      <p style={{ fontSize: 15, fontWeight: 500, marginBottom: "1rem" }}>Customers <span style={{ color: "#888", fontWeight: 400, fontSize: 13 }}>({customers.length})</span></p>
+      <input autoComplete="off" value={q} onChange={e => setQ(e.target.value)} placeholder="Search name, phone, or email" style={{ ...inp, fontSize: 15, marginBottom: 12 }} />
+      {list.slice(0, 100).map(c => {
+        const n = custOrders(c).length;
+        return <div key={c.id} onClick={() => setSel(c)} style={{ background: "#fff", border: "1px solid #e8e8e8", borderRadius: 10, padding: "10px 14px", marginBottom: 6, cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
+          <div style={{ minWidth: 0 }}>
+            <p style={{ fontSize: 13, fontWeight: 500, margin: 0 }}>{c.name}</p>
+            <p style={{ fontSize: 12, color: "#888", margin: "2px 0 0", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.phone}{c.email ? ` · ${c.email}` : ""}</p>
+          </div>
+          <span style={{ fontSize: 11, color: "#888", whiteSpace: "nowrap" }}>{n} order{n === 1 ? "" : "s"} ›</span>
+        </div>;
+      })}
+      {list.length === 0 && <p style={{ color: "#888", fontSize: 13 }}>No customers match.</p>}
+      {list.length > 100 && <p style={{ color: "#888", fontSize: 12 }}>Showing first 100 — narrow your search.</p>}
     </div>
   );
 }
