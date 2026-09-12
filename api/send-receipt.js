@@ -1,7 +1,7 @@
 import { google } from "googleapis";
 import { createClient } from "@supabase/supabase-js";
 import PDFDocument from "pdfkit";
-import { LOGO_B64, LOGO_BUFFER } from "./_logo.js";
+import { WORDMARK_B64, WORDMARK_BUFFER, WORDMARK_W, WORDMARK_H } from "./_logo.js";
 
 const CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
 const CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
@@ -20,7 +20,7 @@ const LOCATION_EMAIL = {
   nhp:        "Newhydepark@ibfoods.com",
 };
 
-const RED = "#8B1A2B";
+const RED = "#900027";
 
 const fmtDate = (d) => {
   if (!d) return "";
@@ -72,10 +72,9 @@ function buildEmailHtml(order, orderItems, items, loc) {
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:480px;background:#fff;border-radius:12px;overflow:hidden;border:1px solid #e4e4e4;">
 
   <!-- Header -->
-  <tr><td style="background:${RED};padding:28px 24px 22px;text-align:center;">
-    <img src="cid:iblogo" width="88" height="88" alt="Iavarone Bros." style="display:block;margin:0 auto 12px;border-radius:50%;border:3px solid #fff;">
-    <div style="color:#fff;font-size:20px;font-weight:bold;letter-spacing:2px;">IAVARONE BROS.</div>
-    <div style="color:rgba(255,255,255,.8);font-size:12px;letter-spacing:1px;margin-top:4px;">${esc(loc?.name || "")} · Since 1927</div>
+  <tr><td style="background:#fff;padding:28px 24px 18px;text-align:center;border-bottom:4px solid ${RED};">
+    <img src="cid:iblogo" width="300" alt="Iavarone Bros. — Quality Foods" style="display:block;margin:0 auto;width:300px;max-width:100%;height:auto;">
+    <div style="color:#777;font-size:12px;letter-spacing:1.5px;text-transform:uppercase;margin-top:12px;">${esc(loc?.name || "")}</div>
   </td></tr>
 
   <!-- Greeting -->
@@ -156,17 +155,13 @@ function buildReceiptPdf(order, orderItems, items, loc) {
     const dash = (y) => { doc.moveTo(M, y).lineTo(pageW - M, y).dash(3, { space: 3 }).strokeColor("#bbbbbb").lineWidth(1).stroke().undash(); };
     const label = (t, y, opts = {}) => doc.fontSize(7).fillColor(LIGHT).font("Helvetica").text(t.toUpperCase(), M, y, { width: W, characterSpacing: 1, ...opts });
 
-    // Header band
-    doc.rect(0, 0, pageW, 118).fill(RED);
-    try {
-      const lw = 56, lx = (pageW - lw) / 2, ly = 15;
-      doc.save().circle(lx + lw / 2, ly + lw / 2, lw / 2 + 2).fill("#ffffff");
-      doc.circle(lx + lw / 2, ly + lw / 2, lw / 2).clip().image(LOGO_BUFFER(), lx, ly, { width: lw, height: lw }).restore();
-    } catch (_) { /* skip logo if it fails */ }
-    doc.fontSize(13).fillColor("#ffffff").font("Helvetica-Bold").text("IAVARONE BROS.", M, 78, { align: "center", width: W, characterSpacing: 1.5 });
-    doc.fontSize(8).fillColor("#f3dfe2").font("Helvetica").text(`${loc?.name || ""}  ·  Since 1927`, M, 96, { align: "center", width: W });
+    // Header: wordmark on white, maroon rule
+    const lw = W, lh = Math.round(lw * WORDMARK_H / WORDMARK_W);
+    try { doc.image(WORDMARK_BUFFER(), M, 22, { width: lw }); } catch (_) { doc.fontSize(14).fillColor(RED).font("Helvetica-Bold").text("IAVARONE BROS.", M, 30, { align: "center", width: W }); }
+    doc.fontSize(8).fillColor("#777777").font("Helvetica").text((loc?.name || "").toUpperCase(), M, 22 + lh + 8, { align: "center", width: W, characterSpacing: 1.5 });
+    doc.rect(0, 22 + lh + 24, pageW, 4).fill(RED);
 
-    let y = 134;
+    let y = 22 + lh + 44;
 
     // Order number block
     label("Daily order #", y, { align: "center" });
@@ -245,12 +240,12 @@ function makeRawEmail({ from, to, subject, html, pdfBuffer, pdfFilename }) {
     ``,
     b64(Buffer.from(html, "utf8")),
     `--${related}`,
-    `Content-Type: image/jpeg`,
+    `Content-Type: image/png`,
     `Content-Transfer-Encoding: base64`,
     `Content-ID: <iblogo>`,
-    `Content-Disposition: inline; filename="ib-logo.jpg"`,
+    `Content-Disposition: inline; filename="iavarone-bros.png"`,
     ``,
-    b64(Buffer.from(LOGO_B64, "base64")),
+    b64(Buffer.from(WORDMARK_B64, "base64")),
     `--${related}--`,
   ];
 
