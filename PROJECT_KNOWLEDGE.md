@@ -179,3 +179,8 @@ iPad PWA → Vercel `/api/print-relay` → Cloudflare Tunnel → Node.js relay o
       `printLabelsZPL()` in `App.jsx` (see Label printing section above for full context —
       template is done and visually confirmed, integration is not).
 - [ ] Write PRINTER_SETUP_NEW_LOCATION.md and PRINTER_ARCHITECTURE.md in repo
+
+## Brand assets
+- **Circle monogram** (`public/logo.jpg`, black IB circle "Since 1927") — used on the app login screen and in-app; keep it there.
+- **Wordmark** (`public/brand/iavarone-wordmark.svg` + `.png`, maroon script "Iavarone Bros. — Quality Foods", brand color `#900027`) — used in the customer receipt email header and PDF receipt header. The PNG is embedded base64 in `api/_logo.js` for the serverless function (inline CID image in email, `doc.image` in pdfkit).
+- Rule: wordmark for anything customer-facing (email, PDF, printed receipts going forward); circle monogram for internal/app UI.
