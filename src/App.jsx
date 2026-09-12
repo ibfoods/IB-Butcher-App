@@ -69,6 +69,11 @@ function TimeInput({ value, onChange, style }) {
   );
 }
 
+function fmtDateLongShort(d) {
+  if (!d) return "";
+  const [y, m, day] = d.split("-").map(Number);
+  return new Date(y, m - 1, day).toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+}
 function fmtTime(t) {
   if (!t) return "";
   const [h, m] = t.split(":");
@@ -499,8 +504,13 @@ function Nav({ user, loc, activeLoc, setActiveLoc, view, setView, can, onLogout 
 function Orders({ activeLoc, user, orders, orderItemsMap, refresh, inv, refreshInv, items, can, printerIps = {}, paperOn = {} }) {
   const [search, setSearch] = useState("");
   const [lf, setLf] = useState(activeLoc || "");
-  const [df, setDf] = useState("");
+  const [range, setRange] = useState("today");   // today | tomorrow | upcoming | all | date
+  const [df, setDf] = useState(tod());
   const [showCancelled, setShowCancelled] = useState(false);
+  const addDays = (d, n) => { const x = new Date(d + "T00:00:00"); x.setDate(x.getDate() + n); return x.toISOString().slice(0, 10); };
+  const today = tod(); const tomorrow = addDays(today, 1);
+  const pickRange = (r) => { setRange(r); setDf(r === "today" ? today : r === "tomorrow" ? tomorrow : ""); };
+  const pickDate = (d) => { setDf(d); setRange(d === today ? "today" : d === tomorrow ? "tomorrow" : d ? "date" : "all"); };
   const [detail, setDetail] = useState(null);
   const [editing, setEditing] = useState(false);
   const [editForm, setEditForm] = useState(null);
@@ -508,13 +518,23 @@ function Orders({ activeLoc, user, orders, orderItemsMap, refresh, inv, refreshI
   const [detailEmailSending, setDetailEmailSending] = useState(false);
   const [detailEmailStatus, setDetailEmailStatus] = useState("");
 
+  const searching = search.trim().length > 0;
   const filtered = orders.filter(o => {
     if (!showCancelled && o.status === "cancelled") return false;
     if (lf && o.location_id !== lf) return false;
-    if (df && o.pickup_date !== df) return false;
-    if (search && !o.customer_name.toLowerCase().includes(search.toLowerCase()) && !String(o.invoice_number).includes(search)) return false;
+    if (searching) {
+      const q = search.trim().toLowerCase(); const qd = q.replace(/\D/g, "");
+      return (o.customer_name || "").toLowerCase().includes(q) || String(o.invoice_number).includes(q) || (qd.length >= 3 && (o.customer_phone || "").replace(/\D/g, "").includes(qd));
+    }
+    if (range === "upcoming") return o.pickup_date >= today;
+    if (df) return o.pickup_date === df;
     return true;
-  }).sort((a, b) => b.invoice_number - a.invoice_number);
+  }).sort((a, b) => {
+    if (searching || range === "all") return b.invoice_number - a.invoice_number;
+    return (a.pickup_date || "").localeCompare(b.pickup_date || "") || (a.pickup_time || "").localeCompare(b.pickup_time || "") || a.daily_number - b.daily_number;
+  });
+  const groupByDate = !searching && (range === "upcoming" || range === "all");
+  const statusCounts = filtered.reduce((m, o) => { m[o.status] = (m[o.status] || 0) + 1; return m; }, {});
 
   const openDetail = (o) => { setDetail(o); setEditing(false); setEditForm(null); setDetailEmail(o.customer_email || ""); setDetailEmailStatus(""); };
 
@@ -716,53 +736,54 @@ function Orders({ activeLoc, user, orders, orderItemsMap, refresh, inv, refreshI
         </div>
       )}
 
-      <div style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap", alignItems: "center" }}>
-        <input autoComplete="one-time-code" name="nofill" data-lpignore="true" data-1p-ignore="true" value={search} onChange={e => setSearch(e.target.value)} placeholder="Search name or invoice #" style={{ flex: 1, minWidth: 140, padding: "7px 10px", border: "1px solid #ddd", borderRadius: 7, fontSize: 13 }} />
-        {!activeLoc && <select value={lf} onChange={e => setLf(e.target.value)} style={{ minWidth: 130, padding: "7px 10px", border: "1px solid #ddd", borderRadius: 7, fontSize: 13 }}><option value="">All locations</option>{LOCS.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}</select>}
-        <input autoComplete="one-time-code" name="nofill" data-lpignore="true" data-1p-ignore="true" type="date" value={df} onChange={e => setDf(e.target.value)} style={{ minWidth: 130, padding: "7px 10px", border: "1px solid #ddd", borderRadius: 7, fontSize: 13 }} />
-        <label style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12, color: "#888", cursor: "pointer", whiteSpace: "nowrap" }}>
+      {/* Range pills + search */}
+      <div style={{ display: "flex", gap: 6, marginBottom: 10, flexWrap: "wrap", alignItems: "center" }}>
+        {[["today", "Today"], ["tomorrow", "Tomorrow"], ["upcoming", "Upcoming"], ["all", "All"]].map(([r, lbl]) => (
+          <button key={r} onClick={() => { setSearch(""); pickRange(r); }} style={{ padding: "6px 13px", borderRadius: 20, border: "1px solid", borderColor: range === r && !searching ? "#8B1A2B" : "#ddd", background: range === r && !searching ? "#8B1A2B" : "#fff", color: range === r && !searching ? "#fff" : "#444", fontSize: 12, fontWeight: 500, cursor: "pointer" }}>{lbl}</button>
+        ))}
+        <input autoComplete="one-time-code" name="nofill" data-lpignore="true" data-1p-ignore="true" type="date" value={df} onChange={e => { setSearch(""); pickDate(e.target.value); }} style={{ padding: "5px 8px", border: "1px solid #ddd", borderRadius: 20, fontSize: 12, color: range === "date" ? "#8B1A2B" : "#666" }} />
+        <div style={{ flex: 1 }} />
+        <label style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11, color: "#888", cursor: "pointer", whiteSpace: "nowrap" }}>
           <input autoComplete="one-time-code" name="nofill" data-lpignore="true" data-1p-ignore="true" type="checkbox" checked={showCancelled} onChange={e => setShowCancelled(e.target.checked)} />
-          Show cancelled
+          Cancelled
         </label>
-        <button
+      </div>
+      <div style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap", alignItems: "center" }}>
+        <input autoComplete="one-time-code" name="nofill" data-lpignore="true" data-1p-ignore="true" value={search} onChange={e => setSearch(e.target.value)} placeholder="Search all orders — name, phone, or invoice #" style={{ flex: 1, minWidth: 180, padding: "8px 12px", border: "1px solid #ddd", borderRadius: 8, fontSize: 13 }} />
+        {!activeLoc && <select value={lf} onChange={e => setLf(e.target.value)} style={{ minWidth: 130, padding: "7px 10px", border: "1px solid #ddd", borderRadius: 8, fontSize: 13 }}><option value="">All locations</option>{LOCS.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}</select>}
+        {(range === "today" || range === "tomorrow" || range === "date") && !searching && <button
           onClick={() => {
-            const printDate = df || tod();
-            const dayOrders = orders.filter(o =>
-              o.pickup_date === printDate &&
-              o.status !== "cancelled" &&
-              (!lf || o.location_id === lf)
-            ).sort((a, b) => a.daily_number - b.daily_number);
-            if (dayOrders.length === 0) { alert(`No orders found for ${fmtDate(printDate)}.`); return; }
+            const dayOrders = orders.filter(o => o.pickup_date === df && o.status !== "cancelled" && (!lf || o.location_id === lf)).sort((a, b) => a.daily_number - b.daily_number);
+            if (dayOrders.length === 0) { alert(`No orders found for ${fmtDate(df)}.`); return; }
             printLabels(dayOrders, orderItemsMap, items, LOCS);
           }}
-          style={{ whiteSpace: "nowrap", padding: "7px 12px", background: "#8B1A2B", color: "#fff", border: "none", borderRadius: 7, fontSize: 13, cursor: "pointer" }}
-        >
-          Print all labels{df ? ` (${fmtDate(df)})` : " (today)"}
-        </button>
+          style={{ whiteSpace: "nowrap", padding: "7px 12px", background: "#fff", color: "#8B1A2B", border: "1px solid #8B1A2B", borderRadius: 8, fontSize: 12, cursor: "pointer" }}
+        >🏷 Labels ({fmtDate(df)})</button>}
       </div>
 
-      {filtered.length === 0 ? <p style={{ color: "#888", textAlign: "center", padding: "2rem" }}>No orders found.</p> :
-        filtered.map(o => {
+      {/* Summary line */}
+      <p style={{ fontSize: 12, color: "#888", margin: "0 0 8px" }}>
+        {searching ? `${filtered.length} match${filtered.length === 1 ? "" : "es"}` : `${filtered.length} order${filtered.length === 1 ? "" : "s"}${range === "today" ? " today" : range === "tomorrow" ? " tomorrow" : range === "date" ? ` on ${fmtDate(df)}` : range === "upcoming" ? " upcoming" : ""}`}
+        {Object.keys(statusCounts).filter(k => k !== "pending").map(k => ` · ${statusCounts[k]} ${k}`).join("")}
+      </p>
+
+      {filtered.length === 0 ? <p style={{ color: "#888", textAlign: "center", padding: "2rem" }}>{searching ? "No orders match." : range === "today" ? "No pickups today." : "No orders."}</p> :
+        filtered.map((o, idx) => {
           const loc = LOCS.find(l => l.id === o.location_id);
           const sc = SCOLOR[o.status] || { bg: "#eee", txt: "#666" };
           const lineItems = orderItemsMap[o.id] || [];
-          const itemSummary = lineItems.map(li => {
-            const item = items.find(i => i.id === li.item_id);
-            return `${li.quantity > 1 ? `${li.quantity}x ` : ""}${item?.name || ""}`;
-          }).join(", ");
+          const qty = lineItems.reduce((n, li) => n + (parseInt(li.quantity) || 0), 0);
+          const itemSummary = lineItems.map(li => { const item = items.find(i => i.id === li.item_id); return `${li.quantity > 1 ? `${li.quantity}× ` : ""}${item?.name || ""}`; }).join(", ");
+          const showHeader = groupByDate && (idx === 0 || filtered[idx - 1].pickup_date !== o.pickup_date);
           return (
-            <div key={o.id} onClick={() => openDetail(o)} style={{ background: "#fff", border: "1px solid #e8e8e8", borderRadius: 10, padding: "10px 14px", marginBottom: 6, cursor: "pointer", display: "flex", alignItems: "center", gap: 12, opacity: o.status === "cancelled" ? 0.6 : 1 }}>
-              <div style={{ textAlign: "center", minWidth: 40 }}>
-                <p style={{ fontSize: 20, fontWeight: 700, color: "#8B1A2B", lineHeight: 1, margin: 0 }}>#{o.daily_number}</p>
-                <p style={{ fontSize: 9, color: "#aaa", margin: 0 }}>#{o.invoice_number}</p>
-              </div>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <p style={{ fontWeight: 500, fontSize: 13, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", margin: 0 }}>{o.customer_name}</p>
-                <p style={{ fontSize: 12, color: "#888", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", margin: 0 }}>{itemSummary}</p>
-                <p style={{ fontSize: 12, color: "#888", margin: 0 }}>Pickup: {fmtDate(o.pickup_date)} {fmtTime(o.pickup_time)} · {loc?.name}</p>
-              </div>
-              <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 5 }}>
-                <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 5, background: sc.bg, color: sc.txt, fontWeight: 500 }}>{o.status}</span>
+            <div key={o.id}>
+              {showHeader && <p style={{ fontSize: 11, fontWeight: 600, color: "#8B1A2B", textTransform: "uppercase", letterSpacing: 1, margin: "14px 0 6px" }}>{o.pickup_date === today ? "Today" : o.pickup_date === tomorrow ? "Tomorrow" : fmtDateLongShort(o.pickup_date)}</p>}
+              <div onClick={() => openDetail(o)} title={itemSummary} style={{ background: "#fff", border: "1px solid #e8e8e8", borderRadius: 8, padding: "8px 12px", marginBottom: 4, cursor: "pointer", display: "flex", alignItems: "center", gap: 10, opacity: o.status === "cancelled" ? 0.55 : 1 }}>
+                <span style={{ fontSize: 16, fontWeight: 700, color: "#8B1A2B", minWidth: 34, textAlign: "center" }}>#{o.daily_number}</span>
+                <span style={{ fontSize: 12, color: "#444", minWidth: 64, fontVariantNumeric: "tabular-nums" }}>{fmtTime(o.pickup_time)}</span>
+                <span style={{ flex: 1, minWidth: 0, fontSize: 13, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{o.customer_name}{(searching || range === "all") && <span style={{ color: "#aaa", fontWeight: 400 }}> · {fmtDate(o.pickup_date)}</span>}{!activeLoc && <span style={{ color: "#aaa", fontWeight: 400 }}> · {loc?.name}</span>}</span>
+                <span style={{ fontSize: 11, color: "#888", whiteSpace: "nowrap" }}>{qty} item{qty === 1 ? "" : "s"}</span>
+                <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 5, background: sc.bg, color: sc.txt, fontWeight: 500, whiteSpace: "nowrap" }}>{o.status}</span>
               </div>
             </div>
           );
