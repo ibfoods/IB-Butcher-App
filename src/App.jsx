@@ -232,6 +232,7 @@ export default function App() {
   const [inv, setInv] = useState({});
   const [items, setItems] = useState([]);
   const [printerIps, setPrinterIps] = useState({});
+  const [paperOn, setPaperOn] = useState({});
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
@@ -249,9 +250,10 @@ export default function App() {
       (i || []).forEach(r => { invMap[`${r.location_id}_${r.item_id}`] = r.stock; });
       setInv(invMap);
       setItems(it || []);
-      const ipMap = {};
-      (pr || []).forEach(r => { if (r.printer_ip) ipMap[r.location_id] = r.printer_ip; });
+      const ipMap = {}; const paperMap = {};
+      (pr || []).forEach(r => { if (r.printer_ip) ipMap[r.location_id] = r.printer_ip; paperMap[r.location_id] = !!r.paper_receipts_enabled; });
       setPrinterIps(ipMap);
+      setPaperOn(paperMap);
       setReady(true);
 
       // Handle Gmail OAuth redirect
@@ -304,7 +306,7 @@ export default function App() {
         {view === "new_order" && <NewOrder user={user} orders={orders} refresh={refreshOrders} inv={inv} refreshInv={refreshInv} items={items} setView={setView} printerIps={printerIps} />}
         {view === "reports" && <Reports orders={orders} orderItemsMap={orderItemsMap} items={items} user={user} />}
         {view === "inventory" && can("manager") && <Inventory inv={inv} refreshInv={refreshInv} items={items} user={user} />}
-        {view === "admin" && can("admin") && <Admin users={users} refreshUsers={refreshUsers} items={items} refreshItems={refreshItems} user={user} can={can} printerIps={printerIps} setPrinterIps={setPrinterIps} />}
+        {view === "admin" && can("manager") && <Admin users={users} refreshUsers={refreshUsers} items={items} refreshItems={refreshItems} user={user} can={can} printerIps={printerIps} setPrinterIps={setPrinterIps} paperOn={paperOn} setPaperOn={setPaperOn} />}
       </div>
     </div>
   );
@@ -350,7 +352,7 @@ function Nav({ user, loc, view, setView, can, onLogout }) {
     { id: "new_order", label: "New order" },
     { id: "reports", label: "Reports" },
     ...(can("manager") ? [{ id: "inventory", label: "Inventory" }] : []),
-    ...(can("admin") ? [{ id: "admin", label: "Admin" }] : []),
+    ...(can("manager") ? [{ id: "admin", label: can("admin") ? "Admin" : "Users" }] : []),
   ];
   return (
     <div style={{ background: "#fff", borderBottom: "1px solid #eee", padding: "10px 1rem 0" }}>
@@ -1180,15 +1182,26 @@ function Inventory({ inv, refreshInv, items, user }) {
   );
 }
 
-function Admin({ users, refreshUsers, items, refreshItems, user, can, printerIps = {}, setPrinterIps }) {
+function Admin({ users, refreshUsers, items, refreshItems, user, can, printerIps = {}, setPrinterIps, paperOn = {}, setPaperOn }) {
   const [tab, setTab] = useState("users");
+  const isAdmin = can("admin");
+  // Managers only see and manage clerks at their own store
+  const visibleUsers = isAdmin ? users : users.filter(u => u.location_id === user.location_id && u.role === "clerk");
+  const canManageUser = (u) => isAdmin || (u.role === "clerk" && u.location_id === user.location_id);
+  const [pin, setPin] = useState("");
+  const validPin = (p, excludeId) => {
+    if (!p) return "";
+    if (!/^[0-9]{4}$/.test(p)) return "PIN must be exactly 4 digits.";
+    if (users.find(u => u.pin === p && u.id !== excludeId)) return "That PIN is already in use.";
+    return "";
+  };
   const [printerEdits, setPrinterEdits] = useState({});
   const [printerSaving, setPrinterSaving] = useState({});
   const [name, setName] = useState("");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [role, setRole] = useState("clerk");
-  const [locationId, setLocationId] = useState("");
+  const [locationId, setLocationId] = useState(user.location_id);
   const [ni, setNi] = useState({ name: "", parent_id: "" });
   const [ue, setUe] = useState("");
   const [ie, setIe] = useState("");
@@ -1220,11 +1233,13 @@ function Admin({ users, refreshUsers, items, refreshItems, user, can, printerIps
   }));
 
   const addU = async () => {
-    if (!name || !username || !password) { setUe("All fields required."); return; }
-    if (users.find(u => u.username === username)) { setUe("Username taken."); return; }
-    await supabase.from("users").insert({ name, username, password, role, location_id: locationId || null });
+    if (!name || !username || !password || !locationId) { setUe("Name, username, password and home store are required."); return; }
+    if (users.find(u => u.username.toLowerCase() === username.toLowerCase())) { setUe("Username taken."); return; }
+    const pe = validPin(pin); if (pe) { setUe(pe); return; }
+    const { error } = await supabase.from("users").insert({ name, username, password, role: isAdmin ? role : "clerk", location_id: isAdmin ? locationId : user.location_id, pin: pin || null });
+    if (error) { setUe(error.message.includes("users_pin_unique") ? "That PIN is already in use." : error.message); return; }
     await refreshUsers();
-    setName(""); setUsername(""); setPassword(""); setRole("clerk"); setLocationId(""); setUe("");
+    setName(""); setUsername(""); setPassword(""); setPin(""); setRole("clerk"); setLocationId(user.location_id); setUe("");
   };
 
   const remU = async id => {
@@ -1235,12 +1250,15 @@ function Admin({ users, refreshUsers, items, refreshItems, user, can, printerIps
   };
 
   const saveEditUser = async () => {
-    await supabase.from("users").update({
+    if (!editingUser.name || !editingUser.username || !editingUser.password || !editingUser.location_id) { setUe("Name, username, password and home store are required."); return; }
+    const pe = validPin(editingUser.pin, editingUser.id); if (pe) { setUe(pe); return; }
+    const { error } = await supabase.from("users").update({
       name: editingUser.name, username: editingUser.username, password: editingUser.password,
-      role: editingUser.role, location_id: editingUser.location_id || null,
+      role: isAdmin ? editingUser.role : "clerk", location_id: isAdmin ? editingUser.location_id : user.location_id, pin: editingUser.pin || null,
     }).eq("id", editingUser.id);
+    if (error) { setUe(error.message.includes("users_pin_unique") ? "That PIN is already in use." : error.message); return; }
     await refreshUsers();
-    setEditingUser(null);
+    setEditingUser(null); setUe("");
   };
 
   const addI = async () => {
@@ -1273,7 +1291,7 @@ function Admin({ users, refreshUsers, items, refreshItems, user, can, printerIps
   return (
     <div>
       <div style={{ display: "flex", gap: 6, marginBottom: "1rem" }}>
-        {["users", "items", "gmail", "printers"].map(t => <button key={t} onClick={() => { setTab(t); if (t === "gmail") loadGmailTokens(); }} style={{ fontSize: 12, padding: "6px 14px", background: tab === t ? "#8B1A2B" : "#fff", color: tab === t ? "#fff" : "#888", border: "1px solid #ddd", borderRadius: 7, cursor: "pointer" }}>{t === "users" ? "Users" : t === "items" ? "Items" : t === "gmail" ? "Gmail" : "🖨️ Printers"}</button>)}
+        {(isAdmin ? ["users", "items", "gmail", "printers"] : ["users"]).map(t => <button key={t} onClick={() => { setTab(t); if (t === "gmail") loadGmailTokens(); }} style={{ fontSize: 12, padding: "6px 14px", background: tab === t ? "#8B1A2B" : "#fff", color: tab === t ? "#fff" : "#888", border: "1px solid #ddd", borderRadius: 7, cursor: "pointer" }}>{t === "users" ? "Users" : t === "items" ? "Items" : t === "gmail" ? "Gmail" : "🖨️ Printers"}</button>)}
       </div>
 
       {tab === "gmail" && <div>
@@ -1316,22 +1334,23 @@ function Admin({ users, refreshUsers, items, refreshItems, user, can, printerIps
             <input value={name} onChange={e => setName(e.target.value)} placeholder="Full name" style={inp} />
             <input value={username} onChange={e => setUsername(e.target.value)} placeholder="Username" style={inp} />
             <input type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="Password" style={inp} />
-            <select value={role} onChange={e => setRole(e.target.value)} style={inp}>
+            <input value={pin} inputMode="numeric" maxLength={4} onChange={e => setPin(e.target.value.replace(/\D/g, "").slice(0, 4))} placeholder="4-digit PIN (for quick login)" style={inp} />
+            <select value={isAdmin ? role : "clerk"} onChange={e => setRole(e.target.value)} disabled={!isAdmin} style={inp}>
               <option value="clerk">Clerk</option>
-              <option value="manager">Manager</option>
-              <option value="admin">Admin</option>
+              {isAdmin && <option value="manager">Manager</option>}
+              {isAdmin && <option value="admin">Admin</option>}
               {can("master_admin") && <option value="master_admin">Master Admin</option>}
             </select>
-            <select value={locationId} onChange={e => setLocationId(e.target.value)} style={inp}>
-              <option value="">All locations</option>
+            <select value={isAdmin ? locationId : user.location_id} onChange={e => setLocationId(e.target.value)} disabled={!isAdmin} style={inp}>
               {LOCS.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
             </select>
           </div>
+          <p style={{ fontSize: 11, color: "#888", margin: "0 0 8px" }}>Home store is where the user's orders default to. {isAdmin ? "" : "Managers can add clerks for their own store only."}</p>
           {ue && <p style={{ color: "#c62828", fontSize: 12, marginBottom: 8 }}>{ue}</p>}
           <button onClick={addU} style={{ fontSize: 12, padding: "6px 14px", background: "#8B1A2B", color: "#fff", border: "none", borderRadius: 7, cursor: "pointer" }}>Add user</button>
         </div>
 
-        {users.map(u => {
+        {visibleUsers.map(u => {
           const isEditing = editingUser?.id === u.id;
           return <div key={u.id} style={{ background: "#fff", border: "1px solid #e8e8e8", borderRadius: 10, padding: "10px 14px", marginBottom: 5 }}>
             {isEditing ? (
@@ -1340,15 +1359,18 @@ function Admin({ users, refreshUsers, items, refreshItems, user, can, printerIps
                   <input value={editingUser.name} onChange={e => setEditingUser(f => ({ ...f, name: e.target.value }))} placeholder="Full name" style={inp} />
                   <input value={editingUser.username} onChange={e => setEditingUser(f => ({ ...f, username: e.target.value }))} placeholder="Username" style={inp} />
                   <input type="password" value={editingUser.password} onChange={e => setEditingUser(f => ({ ...f, password: e.target.value }))} placeholder="Password" style={inp} />
-                  <select value={editingUser.role} onChange={e => setEditingUser(f => ({ ...f, role: e.target.value }))} style={inp}>
-                    <option value="clerk">Clerk</option><option value="manager">Manager</option><option value="admin">Admin</option>
+                  <input value={editingUser.pin || ""} inputMode="numeric" maxLength={4} onChange={e => setEditingUser(f => ({ ...f, pin: e.target.value.replace(/\D/g, "").slice(0, 4) }))} placeholder="4-digit PIN" style={inp} />
+                  <select value={editingUser.role} onChange={e => setEditingUser(f => ({ ...f, role: e.target.value }))} disabled={!isAdmin} style={inp}>
+                    <option value="clerk">Clerk</option>
+                    {isAdmin && <option value="manager">Manager</option>}
+                    {isAdmin && <option value="admin">Admin</option>}
                     {can("master_admin") && <option value="master_admin">Master Admin</option>}
                   </select>
-                  <select value={editingUser.location_id || ""} onChange={e => setEditingUser(f => ({ ...f, location_id: e.target.value || null }))} style={inp}>
-                    <option value="">All locations</option>
+                  <select value={editingUser.location_id || ""} onChange={e => setEditingUser(f => ({ ...f, location_id: e.target.value }))} disabled={!isAdmin} style={inp}>
                     {LOCS.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
                   </select>
                 </div>
+                {ue && <p style={{ color: "#c62828", fontSize: 12, marginBottom: 8 }}>{ue}</p>}
                 <div style={{ display: "flex", gap: 8 }}>
                   <button onClick={saveEditUser} style={{ fontSize: 12, padding: "6px 14px", background: "#8B1A2B", color: "#fff", border: "none", borderRadius: 7, cursor: "pointer" }}>Save</button>
                   <button onClick={() => setEditingUser(null)} style={{ fontSize: 12, padding: "6px 14px", background: "none", border: "1px solid #ddd", borderRadius: 7, cursor: "pointer" }}>Cancel</button>
@@ -1358,12 +1380,12 @@ function Admin({ users, refreshUsers, items, refreshItems, user, can, printerIps
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
                 <div>
                   <p style={{ fontSize: 13, fontWeight: 500, margin: 0 }}>{u.name} <span style={{ fontWeight: 400, color: "#888" }}>@{u.username}</span></p>
-                  <p style={{ fontSize: 11, color: "#888", margin: 0 }}>{ROLES[u.role]} · {u.location_id ? LOCS.find(l => l.id === u.location_id)?.name : "All locations"}</p>
+                  <p style={{ fontSize: 11, color: "#888", margin: 0 }}>{ROLES[u.role]} · {LOCS.find(l => l.id === u.location_id)?.name || "No home store"} · {u.pin ? "PIN set" : <span style={{ color: "#e65100" }}>No PIN</span>}</p>
                 </div>
-                <div style={{ display: "flex", gap: 8 }}>
-                  <button onClick={() => setEditingUser({ ...u })} style={{ fontSize: 12, color: "#8B1A2B", background: "none", border: "none", cursor: "pointer" }}>Edit</button>
+                {canManageUser(u) && <div style={{ display: "flex", gap: 8 }}>
+                  <button onClick={() => { setEditingUser({ ...u }); setUe(""); }} style={{ fontSize: 12, color: "#8B1A2B", background: "none", border: "none", cursor: "pointer" }}>Edit</button>
                   {u.id !== user.id && <button onClick={() => remU(u.id)} style={{ fontSize: 12, color: "#c62828", background: "none", border: "none", cursor: "pointer" }}>Remove</button>}
-                </div>
+                </div>}
               </div>
             )}
           </div>;
@@ -1440,7 +1462,7 @@ function Admin({ users, refreshUsers, items, refreshItems, user, can, printerIps
 
       {tab === "printers" && <div>
         <p style={{ fontSize: 13, color: "#666", marginBottom: 14 }}>
-          Set the printer IP for each location. The iPad must be on the same WiFi as the printer.
+          Email is the default receipt. Turn on <b>Paper receipts</b> for a store to show the Print button on the order confirmation screen.
         </p>
         {LOCS.map(loc => {
           const current = printerIps[loc.id] || "";
@@ -1454,10 +1476,25 @@ function Admin({ users, refreshUsers, items, refreshItems, user, can, printerIps
             setPrinterEdits(e => { const n = { ...e }; delete n[loc.id]; return n; });
             setPrinterSaving(s => ({ ...s, [loc.id]: false }));
           };
+          const paper = !!paperOn[loc.id];
+          const togglePaper = async () => {
+            const next = !paper;
+            setPaperOn(p => ({ ...p, [loc.id]: next }));
+            const { error } = await supabase.from("printer_settings").upsert({ location_id: loc.id, paper_receipts_enabled: next }, { onConflict: "location_id" });
+            if (error) { setPaperOn(p => ({ ...p, [loc.id]: paper })); alert("Could not save: " + error.message); }
+          };
           return (
             <div key={loc.id} style={{ background: "#fff", border: "1px solid #e8e8e8", borderRadius: 10, padding: "12px 16px", marginBottom: 8 }}>
-              <p style={{ fontSize: 13, fontWeight: 600, margin: "0 0 8px" }}>{loc.name}</p>
-              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+                <p style={{ fontSize: 13, fontWeight: 600, margin: 0 }}>{loc.name}</p>
+                <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: paper ? "#2e7d32" : "#888", cursor: "pointer" }}>
+                  <span>Paper receipts {paper ? "ON" : "OFF"}</span>
+                  <span onClick={togglePaper} style={{ width: 38, height: 22, borderRadius: 11, background: paper ? "#2e7d32" : "#ccc", position: "relative", transition: "background .15s" }}>
+                    <span style={{ position: "absolute", top: 2, left: paper ? 18 : 2, width: 18, height: 18, borderRadius: "50%", background: "#fff", transition: "left .15s" }} />
+                  </span>
+                </label>
+              </div>
+              <div style={{ display: "flex", gap: 8, alignItems: "center", opacity: paper ? 1 : 0.5 }}>
                 <input
                   value={edited}
                   onChange={e => setPrinterEdits(prev => ({ ...prev, [loc.id]: e.target.value }))}
