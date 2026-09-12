@@ -303,8 +303,8 @@ export default function App() {
     <div style={{ fontFamily: "system-ui,sans-serif", fontSize: 14, background: "#f5f5f5", minHeight: "100vh" }}>
       <Nav user={user} loc={loc} activeLoc={activeLoc} setActiveLoc={setActiveLoc} view={view} setView={setView} can={can} onLogout={logout} />
       <div style={{ maxWidth: 860, margin: "0 auto", padding: "1rem" }}>
-        {view === "orders" && <Orders key={activeLoc} activeLoc={activeLoc} user={user} orders={orders} orderItemsMap={orderItemsMap} refresh={refreshOrders} inv={inv} refreshInv={refreshInv} items={items} can={can} printerIps={printerIps} />}
-        {view === "new_order" && <NewOrder key={activeLoc} activeLoc={activeLoc} user={user} orders={orders} refresh={refreshOrders} inv={inv} refreshInv={refreshInv} items={items} setView={setView} printerIps={printerIps} />}
+        {view === "orders" && <Orders key={activeLoc} activeLoc={activeLoc} user={user} orders={orders} orderItemsMap={orderItemsMap} refresh={refreshOrders} inv={inv} refreshInv={refreshInv} items={items} can={can} printerIps={printerIps} paperOn={paperOn} />}
+        {view === "new_order" && <NewOrder key={activeLoc} activeLoc={activeLoc} user={user} orders={orders} refresh={refreshOrders} inv={inv} refreshInv={refreshInv} items={items} setView={setView} printerIps={printerIps} paperOn={paperOn} />}
         {view === "reports" && <Reports key={activeLoc} activeLoc={activeLoc} orders={orders} orderItemsMap={orderItemsMap} items={items} user={user} />}
         {view === "inventory" && can("manager") && <Inventory activeLoc={activeLoc} can={can} inv={inv} refreshInv={refreshInv} items={items} user={user} />}
         {view === "admin" && can("manager") && <Admin users={users} refreshUsers={refreshUsers} items={items} refreshItems={refreshItems} user={user} can={can} printerIps={printerIps} setPrinterIps={setPrinterIps} paperOn={paperOn} setPaperOn={setPaperOn} />}
@@ -444,7 +444,7 @@ function Nav({ user, loc, activeLoc, setActiveLoc, view, setView, can, onLogout 
   );
 }
 
-function Orders({ activeLoc, user, orders, orderItemsMap, refresh, inv, refreshInv, items, can, printerIps = {} }) {
+function Orders({ activeLoc, user, orders, orderItemsMap, refresh, inv, refreshInv, items, can, printerIps = {}, paperOn = {} }) {
   const [search, setSearch] = useState("");
   const [lf, setLf] = useState(activeLoc || "");
   const [df, setDf] = useState("");
@@ -576,7 +576,7 @@ function Orders({ activeLoc, user, orders, orderItemsMap, refresh, inv, refreshI
                 </div>
                 <div style={{ display: "flex", gap: 8, marginTop: 12, flexWrap: "wrap" }}>
                   <button onClick={() => startEdit(detail)} style={{ flex: 1, background: "#fff", color: "#555", border: "1px solid #ddd", borderRadius: 8, padding: 9, fontSize: 13, cursor: "pointer" }}>Edit</button>
-                  <button onClick={() => { setDetail(null); setTimeout(() => printReceipt(detail, orderItemsMap[detail.id] || [], items, LOCS, printerIps), 200); }} style={{ flex: 1, background: "#8B1A2B", color: "#fff", border: "none", borderRadius: 8, padding: 9, fontSize: 13, cursor: "pointer" }}>Print receipt</button>
+                  {paperOn[detail.location_id] && <button onClick={() => { setDetail(null); setTimeout(() => printReceipt(detail, orderItemsMap[detail.id] || [], items, LOCS, printerIps), 200); }} style={{ flex: 1, background: "#fff", color: "#555", border: "1px solid #ddd", borderRadius: 8, padding: 9, fontSize: 13, cursor: "pointer" }}>Print receipt</button>}
                   <button onClick={() => { setDetail(null); setTimeout(() => printLabels([detail], { [detail.id]: orderItemsMap[detail.id] || [] }, items, LOCS), 200); }} style={{ flex: 1, background: "#fff", color: "#8B1A2B", border: "1px solid #8B1A2B", borderRadius: 8, padding: 9, fontSize: 13, cursor: "pointer" }}>Print label</button>
                 </div>
                 {/* Email receipt */}
@@ -720,7 +720,7 @@ function Orders({ activeLoc, user, orders, orderItemsMap, refresh, inv, refreshI
   );
 }
 
-function NewOrder({ activeLoc, user, orders, refresh, inv, refreshInv, items, setView, printerIps = {} }) {
+function NewOrder({ activeLoc, user, orders, refresh, inv, refreshInv, items, setView, printerIps = {}, paperOn = {} }) {
   const locs = activeLoc ? LOCS.filter(l => l.id === activeLoc) : LOCS;
   const orderableItems = items.filter(i => i.active !== false);
   const [locationId, setLocationId] = useState(activeLoc || locs[0]?.id || "");
@@ -863,53 +863,53 @@ function NewOrder({ activeLoc, user, orders, refresh, inv, refreshInv, items, se
           <p style={{ fontSize: 12, color: "#888", margin: "2px 0 0" }}>Pickup: {fmtDate(placedOrder.pickup_date)} at {fmtTime(placedOrder.pickup_time)}</p>
         </div>
 
-        {/* Receipt options */}
-        <div style={{ background: "#fff", border: "1px solid #e8e8e8", borderRadius: 10, padding: "16px", marginBottom: 16 }}>
-          <p style={{ fontSize: 12, color: "#666", textTransform: "uppercase", letterSpacing: 1, marginBottom: 12, marginTop: 0 }}>Receipt Options</p>
-
-          {/* Print */}
-          <button
-            onClick={() => printReceipt(placedOrder, placedOrderItems, items, LOCS, printerIps)}
-            style={{ width: "100%", background: "#fff", color: "#333", border: "1px solid #ddd", borderRadius: 8, padding: "11px 14px", fontSize: 14, cursor: "pointer", marginBottom: 8, display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}
-          >
-            🖨️ Print Receipt
-          </button>
-
-          {/* Email */}
-          <div style={{ border: "1px solid #ddd", borderRadius: 8, padding: "12px", marginBottom: 8 }}>
-            <p style={{ fontSize: 13, margin: "0 0 8px", display: "flex", alignItems: "center", gap: 6 }}>📧 Email Receipt</p>
-            <div style={{ display: "flex", gap: 8 }}>
-              <input autoComplete="off"
-                type="email"
-                value={confirmEmail}
-                onChange={e => { setConfirmEmail(e.target.value); setEmailStatus(""); }}
-                placeholder="customer@email.com"
-                style={{ ...inp, flex: 1 }}
-              />
-              <button
-                onClick={() => sendEmail(confirmEmail)}
-                disabled={emailSending}
-                style={{ padding: "7px 14px", background: "#8B1A2B", color: "#fff", border: "none", borderRadius: 7, fontSize: 13, cursor: emailSending ? "default" : "pointer", opacity: emailSending ? 0.7 : 1, whiteSpace: "nowrap" }}
-              >
-                {emailSending ? "Sending…" : "Send"}
-              </button>
+        {/* Receipt delivery — email first */}
+        {(() => {
+          const paper = !!paperOn[placedOrder.location_id];
+          const sent = emailStatus === "sent";
+          const validEmail = confirmEmail && confirmEmail.includes("@");
+          return (
+            <div style={{ background: "#fff", border: "1px solid #e8e8e8", borderRadius: 10, padding: "16px", marginBottom: 16 }}>
+              <p style={{ fontSize: 12, color: "#666", textTransform: "uppercase", letterSpacing: 1, marginBottom: 10, marginTop: 0 }}>Send receipt</p>
+              {sent ? (
+                <div style={{ background: "#e8f5e9", border: "1px solid #c8e6c9", borderRadius: 8, padding: "12px 14px", textAlign: "center" }}>
+                  <p style={{ fontSize: 14, fontWeight: 600, color: "#2e7d32", margin: 0 }}>✓ Receipt emailed</p>
+                  <p style={{ fontSize: 12, color: "#2e7d32", margin: "3px 0 0" }}>{confirmEmail}</p>
+                </div>
+              ) : (
+                <>
+                  <input autoComplete="off"
+                    type="email"
+                    inputMode="email"
+                    value={confirmEmail}
+                    onChange={e => { setConfirmEmail(e.target.value); setEmailStatus(""); }}
+                    onKeyDown={e => e.key === "Enter" && validEmail && sendEmail(confirmEmail)}
+                    placeholder="Customer email address"
+                    style={{ ...inp, fontSize: 16, padding: "11px 12px", marginBottom: 10 }}
+                  />
+                  <button
+                    onClick={() => sendEmail(confirmEmail)}
+                    disabled={emailSending || !validEmail}
+                    style={{ width: "100%", background: validEmail ? "#8B1A2B" : "#ccc", color: "#fff", border: "none", borderRadius: 8, padding: "13px 14px", fontSize: 15, fontWeight: 600, cursor: validEmail && !emailSending ? "pointer" : "default", opacity: emailSending ? 0.7 : 1 }}
+                  >
+                    {emailSending ? "Sending…" : "Confirm & Email Receipt"}
+                  </button>
+                  {emailStatus === "error" && <p style={{ fontSize: 12, color: "#c62828", margin: "8px 0 0" }}>Failed to send. Check the address and try again.</p>}
+                  {emailStatus === "error_addr" && <p style={{ fontSize: 12, color: "#c62828", margin: "8px 0 0" }}>Please enter a valid email address.</p>}
+                  {!validEmail && <p style={{ fontSize: 11, color: "#888", margin: "8px 0 0", textAlign: "center" }}>No email? The order is already saved — the customer can reference order #{placedOrder.daily_number}.</p>}
+                </>
+              )}
+              {paper && (
+                <button
+                  onClick={() => printReceipt(placedOrder, placedOrderItems, items, LOCS, printerIps)}
+                  style={{ width: "100%", marginTop: 10, background: "#fff", color: "#555", border: "1px solid #ddd", borderRadius: 8, padding: "10px 14px", fontSize: 13, cursor: "pointer" }}
+                >
+                  🖨️ Print paper receipt
+                </button>
+              )}
             </div>
-            {emailStatus === "sent" && <p style={{ fontSize: 12, color: "#2e7d32", margin: "6px 0 0" }}>✓ Receipt sent to {confirmEmail}</p>}
-            {emailStatus === "error" && <p style={{ fontSize: 12, color: "#c62828", margin: "6px 0 0" }}>Failed to send. Check the email address and try again.</p>}
-            {emailStatus === "error_addr" && <p style={{ fontSize: 12, color: "#c62828", margin: "6px 0 0" }}>Please enter a valid email address.</p>}
-          </div>
-
-          {/* Both */}
-          {hasEmail && emailStatus !== "sent" && (
-            <button
-              onClick={async () => { printReceipt(placedOrder, placedOrderItems, items, LOCS, printerIps); await sendEmail(confirmEmail); }}
-              disabled={emailSending}
-              style={{ width: "100%", background: "#f5f5f5", color: "#333", border: "1px solid #ddd", borderRadius: 8, padding: "11px 14px", fontSize: 14, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}
-            >
-              🖨️📧 Print & Email
-            </button>
-          )}
-        </div>
+          );
+        })()}
 
         {/* Done button */}
         <button
