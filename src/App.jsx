@@ -383,11 +383,11 @@ function Login({ users, onLogin }) {
           <div style={{ background: "#fff", border: "1px solid #e8e8e8", borderRadius: 14, padding: 20 }}>
             <div style={{ marginBottom: 10 }}>
               <p style={{ fontSize: 12, color: "#666", marginBottom: 4 }}>Username</p>
-              <input value={username} onChange={e => setUsername(e.target.value)} onKeyDown={e => e.key === "Enter" && goPw()} placeholder="Username" autoCapitalize="none" style={{ ...inp, fontSize: 16 }} />
+              <input autoComplete="off" value={username} onChange={e => setUsername(e.target.value)} onKeyDown={e => e.key === "Enter" && goPw()} placeholder="Username" autoCapitalize="none" style={{ ...inp, fontSize: 16 }} />
             </div>
             <div style={{ marginBottom: 14 }}>
               <p style={{ fontSize: 12, color: "#666", marginBottom: 4 }}>Password</p>
-              <input type="password" value={password} onChange={e => setPassword(e.target.value)} onKeyDown={e => e.key === "Enter" && goPw()} placeholder="Password" style={{ ...inp, fontSize: 16 }} />
+              <input autoComplete="new-password" type="password" value={password} onChange={e => setPassword(e.target.value)} onKeyDown={e => e.key === "Enter" && goPw()} placeholder="Password" style={{ ...inp, fontSize: 16 }} />
             </div>
             {err && <p style={{ color: "#c62828", fontSize: 12, marginBottom: 10 }}>{err}</p>}
             <button onClick={goPw} style={{ width: "100%", background: "#8B1A2B", color: "#fff", border: "none", borderRadius: 8, padding: 10, fontSize: 14, fontWeight: 500, cursor: "pointer" }}>Sign in</button>
@@ -569,7 +569,7 @@ function Orders({ user, orders, orderItemsMap, refresh, inv, refreshInv, items, 
                 <div style={{ border: "1px solid #e8e8e8", borderRadius: 8, padding: "10px 12px", marginTop: 8 }}>
                   <p style={{ fontSize: 12, color: "#666", margin: "0 0 6px" }}>📧 Email receipt</p>
                   <div style={{ display: "flex", gap: 8 }}>
-                    <input
+                    <input autoComplete="off"
                       type="email"
                       value={detailEmail}
                       onChange={e => { setDetailEmail(e.target.value); setDetailEmailStatus(""); }}
@@ -616,15 +616,15 @@ function Orders({ user, orders, orderItemsMap, refresh, inv, refreshInv, items, 
             ) : (
               <>
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>
-                  <div><p style={{ fontSize: 12, color: "#666", marginBottom: 4 }}>First name</p><input value={editForm.firstName} onChange={e => setEditForm(f => ({ ...f, firstName: e.target.value }))} style={inp} /></div>
-                  <div><p style={{ fontSize: 12, color: "#666", marginBottom: 4 }}>Last name</p><input value={editForm.lastName} onChange={e => setEditForm(f => ({ ...f, lastName: e.target.value }))} style={inp} /></div>
+                  <div><p style={{ fontSize: 12, color: "#666", marginBottom: 4 }}>First name</p><input autoComplete="off" value={editForm.firstName} onChange={e => setEditForm(f => ({ ...f, firstName: e.target.value }))} style={inp} /></div>
+                  <div><p style={{ fontSize: 12, color: "#666", marginBottom: 4 }}>Last name</p><input autoComplete="off" value={editForm.lastName} onChange={e => setEditForm(f => ({ ...f, lastName: e.target.value }))} style={inp} /></div>
                 </div>
-                <div style={{ marginBottom: 10 }}><p style={{ fontSize: 12, color: "#666", marginBottom: 4 }}>Phone</p><input value={editForm.customer_phone} onChange={e => setEditForm(f => ({ ...f, customer_phone: formatPhone(e.target.value) }))} style={inp} /></div>
-                <div style={{ marginBottom: 10 }}><p style={{ fontSize: 12, color: "#666", marginBottom: 4 }}>Email (optional)</p><input type="email" value={editForm.customer_email || ""} onChange={e => setEditForm(f => ({ ...f, customer_email: e.target.value }))} placeholder="customer@email.com" style={inp} /></div>
+                <div style={{ marginBottom: 10 }}><p style={{ fontSize: 12, color: "#666", marginBottom: 4 }}>Phone</p><input autoComplete="off" value={editForm.customer_phone} onChange={e => setEditForm(f => ({ ...f, customer_phone: formatPhone(e.target.value) }))} style={inp} /></div>
+                <div style={{ marginBottom: 10 }}><p style={{ fontSize: 12, color: "#666", marginBottom: 4 }}>Email (optional)</p><input autoComplete="off" type="email" value={editForm.customer_email || ""} onChange={e => setEditForm(f => ({ ...f, customer_email: e.target.value }))} placeholder="customer@email.com" style={inp} /></div>
                 {!user.location_id && <div style={{ marginBottom: 10 }}><p style={{ fontSize: 12, color: "#666", marginBottom: 4 }}>Location</p><select value={editForm.location_id} onChange={e => setEditForm(f => ({ ...f, location_id: e.target.value }))} style={inp}>{LOCS.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}</select></div>}
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>
-                  <div><p style={{ fontSize: 12, color: "#666", marginBottom: 4 }}>Pickup date</p><input type="date" value={editForm.pickup_date} onChange={e => setEditForm(f => ({ ...f, pickup_date: e.target.value }))} style={inp} /></div>
-                  <div><p style={{ fontSize: 12, color: "#666", marginBottom: 4 }}>Pickup time</p><input type="time" value={editForm.pickup_time} onChange={e => setEditForm(f => ({ ...f, pickup_time: e.target.value }))} style={inp} /></div>
+                  <div><p style={{ fontSize: 12, color: "#666", marginBottom: 4 }}>Pickup date</p><input autoComplete="off" type="date" value={editForm.pickup_date} onChange={e => setEditForm(f => ({ ...f, pickup_date: e.target.value }))} style={inp} /></div>
+                  <div><p style={{ fontSize: 12, color: "#666", marginBottom: 4 }}>Pickup time</p><input autoComplete="off" type="time" value={editForm.pickup_time} onChange={e => setEditForm(f => ({ ...f, pickup_time: e.target.value }))} style={inp} /></div>
                 </div>
                 <div style={{ marginBottom: 10 }}>
                   <p style={{ fontSize: 12, color: "#666", marginBottom: 6 }}>Items</p>
@@ -633,13 +633,13 @@ function Orders({ user, orders, orderItemsMap, refresh, inv, refreshInv, items, 
                       <select value={li.item_id} onChange={e => setEditForm(f => ({ ...f, lineItems: f.lineItems.map((x, idx) => idx === i ? { ...x, item_id: e.target.value } : x) }))} style={{ ...inp, flex: 3 }}>
                         {items.filter(x => x.active !== false).map(x => <option key={x.id} value={x.id}>{x.name}</option>)}
                       </select>
-                      <input type="number" min={1} value={li.quantity} onChange={e => setEditForm(f => ({ ...f, lineItems: f.lineItems.map((x, idx) => idx === i ? { ...x, quantity: e.target.value } : x) }))} style={{ ...inp, width: 60, flex: "none" }} />
+                      <input autoComplete="off" type="number" min={1} value={li.quantity} onChange={e => setEditForm(f => ({ ...f, lineItems: f.lineItems.map((x, idx) => idx === i ? { ...x, quantity: e.target.value } : x) }))} style={{ ...inp, width: 60, flex: "none" }} />
                       {editForm.lineItems.length > 1 && <button onClick={() => setEditForm(f => ({ ...f, lineItems: f.lineItems.filter((_, idx) => idx !== i) }))} style={{ background: "none", border: "none", color: "#c62828", fontSize: 18, cursor: "pointer", padding: "0 4px" }}>×</button>}
                     </div>
                   ))}
                   <button onClick={() => setEditForm(f => ({ ...f, lineItems: [...f.lineItems, { item_id: items.filter(x => x.active !== false)[0]?.id || "", quantity: 1 }] }))} style={{ fontSize: 12, color: "#8B1A2B", background: "none", border: "1px solid #8B1A2B", borderRadius: 7, padding: "5px 12px", cursor: "pointer" }}>+ Add item</button>
                 </div>
-                <div style={{ marginBottom: 12 }}><p style={{ fontSize: 12, color: "#666", marginBottom: 4 }}>Notes</p><textarea value={editForm.notes} onChange={e => setEditForm(f => ({ ...f, notes: e.target.value }))} style={{ ...inp, height: 58, resize: "vertical" }} /></div>
+                <div style={{ marginBottom: 12 }}><p style={{ fontSize: 12, color: "#666", marginBottom: 4 }}>Notes</p><textarea autoComplete="off" value={editForm.notes} onChange={e => setEditForm(f => ({ ...f, notes: e.target.value }))} style={{ ...inp, height: 58, resize: "vertical" }} /></div>
                 <div style={{ display: "flex", gap: 8 }}>
                   <button onClick={saveEdit} style={{ flex: 1, background: "#8B1A2B", color: "#fff", border: "none", borderRadius: 8, padding: 9, fontSize: 13, cursor: "pointer" }}>Save changes</button>
                   <button onClick={() => setEditing(false)} style={{ flex: 1, background: "#fff", color: "#555", border: "1px solid #ddd", borderRadius: 8, padding: 9, fontSize: 13, cursor: "pointer" }}>Cancel</button>
@@ -651,11 +651,11 @@ function Orders({ user, orders, orderItemsMap, refresh, inv, refreshInv, items, 
       )}
 
       <div style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap", alignItems: "center" }}>
-        <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search name or invoice #" style={{ flex: 1, minWidth: 140, padding: "7px 10px", border: "1px solid #ddd", borderRadius: 7, fontSize: 13 }} />
+        <input autoComplete="off" value={search} onChange={e => setSearch(e.target.value)} placeholder="Search name or invoice #" style={{ flex: 1, minWidth: 140, padding: "7px 10px", border: "1px solid #ddd", borderRadius: 7, fontSize: 13 }} />
         {!user.location_id && <select value={lf} onChange={e => setLf(e.target.value)} style={{ minWidth: 130, padding: "7px 10px", border: "1px solid #ddd", borderRadius: 7, fontSize: 13 }}><option value="">All locations</option>{LOCS.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}</select>}
-        <input type="date" value={df} onChange={e => setDf(e.target.value)} style={{ minWidth: 130, padding: "7px 10px", border: "1px solid #ddd", borderRadius: 7, fontSize: 13 }} />
+        <input autoComplete="off" type="date" value={df} onChange={e => setDf(e.target.value)} style={{ minWidth: 130, padding: "7px 10px", border: "1px solid #ddd", borderRadius: 7, fontSize: 13 }} />
         <label style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12, color: "#888", cursor: "pointer", whiteSpace: "nowrap" }}>
-          <input type="checkbox" checked={showCancelled} onChange={e => setShowCancelled(e.target.checked)} />
+          <input autoComplete="off" type="checkbox" checked={showCancelled} onChange={e => setShowCancelled(e.target.checked)} />
           Show cancelled
         </label>
         <button
@@ -865,7 +865,7 @@ function NewOrder({ user, orders, refresh, inv, refreshInv, items, setView, prin
           <div style={{ border: "1px solid #ddd", borderRadius: 8, padding: "12px", marginBottom: 8 }}>
             <p style={{ fontSize: 13, margin: "0 0 8px", display: "flex", alignItems: "center", gap: 6 }}>📧 Email Receipt</p>
             <div style={{ display: "flex", gap: 8 }}>
-              <input
+              <input autoComplete="off"
                 type="email"
                 value={confirmEmail}
                 onChange={e => { setConfirmEmail(e.target.value); setEmailStatus(""); }}
@@ -913,11 +913,11 @@ function NewOrder({ user, orders, refresh, inv, refreshInv, items, setView, prin
       <p style={{ fontSize: 15, fontWeight: 500, marginBottom: "1rem" }}>New order</p>
       {!user.location_id && <F label="Location"><select value={locationId} onChange={e => setLocationId(e.target.value)} style={inp}>{LOCS.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}</select></F>}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-        <F label="First name"><input value={firstName} onChange={e => setFirstName(e.target.value)} placeholder="First name" style={inp} /></F>
-        <F label="Last name"><input value={lastName} onChange={e => setLastName(e.target.value)} placeholder="Last name" style={inp} /></F>
+        <F label="First name"><input autoComplete="off" value={firstName} onChange={e => setFirstName(e.target.value)} placeholder="First name" style={inp} /></F>
+        <F label="Last name"><input autoComplete="off" value={lastName} onChange={e => setLastName(e.target.value)} placeholder="Last name" style={inp} /></F>
       </div>
-      <F label="Phone number"><input value={phone} onChange={handlePhone} placeholder="(xxx) xxx-xxxx" style={inp} /></F>
-      <F label="Customer email (optional)"><input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="customer@email.com" style={inp} /></F>
+      <F label="Phone number"><input autoComplete="off" value={phone} onChange={handlePhone} placeholder="(xxx) xxx-xxxx" style={inp} /></F>
+      <F label="Customer email (optional)"><input autoComplete="off" type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="customer@email.com" style={inp} /></F>
       <div style={{ marginBottom: 12 }}>
         <p style={{ fontSize: 12, color: "#666", marginBottom: 6 }}>Items</p>
         {lineItems.map((li, i) => {
@@ -927,7 +927,7 @@ function NewOrder({ user, orders, refresh, inv, refreshInv, items, setView, prin
               <select value={li.item_id} onChange={e => updateLineItem(i, "item_id", e.target.value)} style={{ ...inp, flex: 3 }}>
                 {orderableItems.map(x => <option key={x.id} value={x.id}>{x.name}</option>)}
               </select>
-              <input type="number" min={1} value={li.quantity} onChange={e => updateLineItem(i, "quantity", e.target.value)} style={{ ...inp, width: 60, flex: "none" }} />
+              <input autoComplete="off" type="number" min={1} value={li.quantity} onChange={e => updateLineItem(i, "quantity", e.target.value)} style={{ ...inp, width: 60, flex: "none" }} />
               {lineItems.length > 1 && <button onClick={() => removeLineItem(i)} style={{ background: "none", border: "none", color: "#c62828", fontSize: 18, cursor: "pointer", padding: "0 4px", flexShrink: 0 }}>×</button>}
             </div>
             {stock !== null && <p style={{ fontSize: 11, marginTop: 2, marginLeft: 2, color: stock <= 0 ? "#c62828" : stock <= 5 ? "#e65100" : "#2e7d32" }}>{stock <= 0 ? "⚠ Out of stock" : stock <= 5 ? `⚠ Low stock (${stock} left in pool)` : `${stock} in pool`}</p>}
@@ -936,10 +936,10 @@ function NewOrder({ user, orders, refresh, inv, refreshInv, items, setView, prin
         <button onClick={addLineItem} style={{ fontSize: 12, color: "#8B1A2B", background: "none", border: "1px solid #8B1A2B", borderRadius: 7, padding: "5px 12px", cursor: "pointer", marginTop: 2 }}>+ Add item</button>
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-        <F label="Pickup date"><input type="date" value={pickupDate} onChange={e => setPickupDate(e.target.value)} style={inp} /></F>
-        <F label="Pickup time"><input type="time" value={pickupTime} onChange={e => setPickupTime(e.target.value)} style={inp} /></F>
+        <F label="Pickup date"><input autoComplete="off" type="date" value={pickupDate} onChange={e => setPickupDate(e.target.value)} style={inp} /></F>
+        <F label="Pickup time"><input autoComplete="off" type="time" value={pickupTime} onChange={e => setPickupTime(e.target.value)} style={inp} /></F>
       </div>
-      <F label="Notes (optional)"><textarea value={notes} onChange={e => setNotes(e.target.value)} style={{ ...inp, height: 58, resize: "vertical" }} placeholder="Special instructions..." /></F>
+      <F label="Notes (optional)"><textarea autoComplete="off" value={notes} onChange={e => setNotes(e.target.value)} style={{ ...inp, height: 58, resize: "vertical" }} placeholder="Special instructions..." /></F>
       {err && <p style={{ color: "#c62828", fontSize: 12, marginBottom: 10 }}>{err}</p>}
       <button onClick={submit} style={{ width: "100%", background: "#8B1A2B", color: "#fff", border: "none", borderRadius: 8, padding: 11, fontSize: 14, fontWeight: 500, cursor: "pointer" }}>Place order →</button>
     </div>
@@ -1086,9 +1086,9 @@ function Reports({ orders, orderItemsMap, items, user }) {
         </select>
         {type !== "contacts" && !user.location_id && <select value={loc} onChange={e => setLoc(e.target.value)} style={{ ...inp, minWidth: 130, width: "auto" }}><option value="">All locations</option>{LOCS.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}</select>}
         {type !== "contacts" && <>
-          <input type="date" value={from} onChange={e => setFrom(e.target.value)} style={{ ...inp, minWidth: 130, width: "auto" }} />
+          <input autoComplete="off" type="date" value={from} onChange={e => setFrom(e.target.value)} style={{ ...inp, minWidth: 130, width: "auto" }} />
           <span style={{ color: "#888", fontSize: 12 }}>to</span>
-          <input type="date" value={to} onChange={e => setTo(e.target.value)} style={{ ...inp, minWidth: 130, width: "auto" }} />
+          <input autoComplete="off" type="date" value={to} onChange={e => setTo(e.target.value)} style={{ ...inp, minWidth: 130, width: "auto" }} />
         </>}
         {type === "popularity" && <button onClick={printPop} style={{ ...inp, width: "auto", background: "#fff", cursor: "pointer" }}>Print</button>}
         {type === "production" && <>
@@ -1203,7 +1203,7 @@ function Inventory({ inv, refreshInv, items, user }) {
                 </div>
                 <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                   <button onClick={() => set(loc.id, parent.id, parentStock - 1)} style={{ width: 26, height: 26, borderRadius: "50%", background: "none", border: "1px solid #ddd", fontSize: 16, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>−</button>
-                  <input type="number" defaultValue={parentStock} key={`${loc.id}_${parent.id}_${parentStock}`} min={0} onBlur={e => set(loc.id, parent.id, e.target.value)} style={{ width: 50, textAlign: "center", padding: "5px", border: "1px solid #ddd", borderRadius: 7, fontSize: 13 }} />
+                  <input autoComplete="off" type="number" defaultValue={parentStock} key={`${loc.id}_${parent.id}_${parentStock}`} min={0} onBlur={e => set(loc.id, parent.id, e.target.value)} style={{ width: 50, textAlign: "center", padding: "5px", border: "1px solid #ddd", borderRadius: 7, fontSize: 13 }} />
                   <button onClick={() => set(loc.id, parent.id, parentStock + 1)} style={{ width: 26, height: 26, borderRadius: "50%", background: "none", border: "1px solid #ddd", fontSize: 16, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>+</button>
                   <span style={{ fontSize: 11, minWidth: 60, color: parentStock <= 0 ? "#c62828" : parentStock <= 5 ? "#e65100" : "#2e7d32" }}>{parentStock <= 0 ? "Out of stock" : parentStock <= 5 ? `Low (${parentStock})` : `${parentStock} units`}</span>
                 </div>
@@ -1223,7 +1223,7 @@ function Inventory({ inv, refreshInv, items, user }) {
               <span style={{ fontSize: 12, flex: 1 }}>{parent.name}</span>
               <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                 <button onClick={() => set(loc.id, parent.id, stock - 1)} style={{ width: 26, height: 26, borderRadius: "50%", background: "none", border: "1px solid #ddd", fontSize: 16, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>−</button>
-                <input type="number" defaultValue={stock} key={`${loc.id}_${parent.id}_${stock}`} min={0} onBlur={e => set(loc.id, parent.id, e.target.value)} style={{ width: 50, textAlign: "center", padding: "5px", border: "1px solid #ddd", borderRadius: 7, fontSize: 13 }} />
+                <input autoComplete="off" type="number" defaultValue={stock} key={`${loc.id}_${parent.id}_${stock}`} min={0} onBlur={e => set(loc.id, parent.id, e.target.value)} style={{ width: 50, textAlign: "center", padding: "5px", border: "1px solid #ddd", borderRadius: 7, fontSize: 13 }} />
                 <button onClick={() => set(loc.id, parent.id, stock + 1)} style={{ width: 26, height: 26, borderRadius: "50%", background: "none", border: "1px solid #ddd", fontSize: 16, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>+</button>
                 <span style={{ fontSize: 11, minWidth: 60, color: stock <= 0 ? "#c62828" : stock <= 5 ? "#e65100" : "#2e7d32" }}>{stock <= 0 ? "Out of stock" : stock <= 5 ? `Low (${stock})` : `${stock} units`}</span>
               </div>
@@ -1384,10 +1384,10 @@ function Admin({ users, refreshUsers, items, refreshItems, user, can, printerIps
         <div style={{ background: "#fff", border: "1px solid #e8e8e8", borderRadius: 10, padding: "1rem", marginBottom: "1rem" }}>
           <p style={{ fontSize: 13, fontWeight: 500, marginBottom: 10 }}>Add user</p>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 8 }}>
-            <input value={name} onChange={e => setName(e.target.value)} placeholder="Full name" style={inp} />
-            <input value={username} onChange={e => setUsername(e.target.value)} placeholder="Username" style={inp} />
-            <input type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="Password" style={inp} />
-            <input value={pin} inputMode="numeric" maxLength={4} onChange={e => setPin(e.target.value.replace(/\D/g, "").slice(0, 4))} placeholder="4-digit PIN (for quick login)" style={inp} />
+            <input autoComplete="off" value={name} onChange={e => setName(e.target.value)} placeholder="Full name" style={inp} />
+            <input autoComplete="off" value={username} onChange={e => setUsername(e.target.value)} placeholder="Username" style={inp} />
+            <input autoComplete="new-password" type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="Password" style={inp} />
+            <input autoComplete="off" value={pin} inputMode="numeric" maxLength={4} onChange={e => setPin(e.target.value.replace(/\D/g, "").slice(0, 4))} placeholder="4-digit PIN (for quick login)" style={inp} />
             <select value={isAdmin ? role : "clerk"} onChange={e => setRole(e.target.value)} disabled={!isAdmin} style={inp}>
               <option value="clerk">Clerk</option>
               {isAdmin && <option value="manager">Manager</option>}
@@ -1409,10 +1409,10 @@ function Admin({ users, refreshUsers, items, refreshItems, user, can, printerIps
             {isEditing ? (
               <div>
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 8 }}>
-                  <input value={editingUser.name} onChange={e => setEditingUser(f => ({ ...f, name: e.target.value }))} placeholder="Full name" style={inp} />
-                  <input value={editingUser.username} onChange={e => setEditingUser(f => ({ ...f, username: e.target.value }))} placeholder="Username" style={inp} />
-                  <input type="password" value={editingUser.password} onChange={e => setEditingUser(f => ({ ...f, password: e.target.value }))} placeholder="Password" style={inp} />
-                  <input value={editingUser.pin || ""} inputMode="numeric" maxLength={4} onChange={e => setEditingUser(f => ({ ...f, pin: e.target.value.replace(/\D/g, "").slice(0, 4) }))} placeholder="4-digit PIN" style={inp} />
+                  <input autoComplete="off" value={editingUser.name} onChange={e => setEditingUser(f => ({ ...f, name: e.target.value }))} placeholder="Full name" style={inp} />
+                  <input autoComplete="off" value={editingUser.username} onChange={e => setEditingUser(f => ({ ...f, username: e.target.value }))} placeholder="Username" style={inp} />
+                  <input autoComplete="new-password" type="password" value={editingUser.password} onChange={e => setEditingUser(f => ({ ...f, password: e.target.value }))} placeholder="Password" style={inp} />
+                  <input autoComplete="off" value={editingUser.pin || ""} inputMode="numeric" maxLength={4} onChange={e => setEditingUser(f => ({ ...f, pin: e.target.value.replace(/\D/g, "").slice(0, 4) }))} placeholder="4-digit PIN" style={inp} />
                   <select value={editingUser.role} onChange={e => setEditingUser(f => ({ ...f, role: e.target.value }))} disabled={!isAdmin} style={inp}>
                     <option value="clerk">Clerk</option>
                     {isAdmin && <option value="manager">Manager</option>}
@@ -1449,7 +1449,7 @@ function Admin({ users, refreshUsers, items, refreshItems, user, can, printerIps
         <div style={{ background: "#fff", border: "1px solid #e8e8e8", borderRadius: 10, padding: "1rem", marginBottom: "1rem" }}>
           <p style={{ fontSize: 13, fontWeight: 500, marginBottom: 10 }}>Add item</p>
           <div style={{ marginBottom: 8 }}>
-            <input value={ni.name} onChange={e => setNi(f => ({ ...f, name: e.target.value }))} placeholder="Item name" style={inp} onKeyDown={e => e.key === "Enter" && addI()} />
+            <input autoComplete="off" value={ni.name} onChange={e => setNi(f => ({ ...f, name: e.target.value }))} placeholder="Item name" style={inp} onKeyDown={e => e.key === "Enter" && addI()} />
           </div>
           <div style={{ marginBottom: 8 }}>
             <p style={{ fontSize: 11, color: "#666", marginBottom: 4 }}>Parent item (optional — for shared inventory pools)</p>
@@ -1466,7 +1466,7 @@ function Admin({ users, refreshUsers, items, refreshItems, user, can, printerIps
           <div key={parent.id} style={{ background: "#fff", border: "1px solid #e8e8e8", borderRadius: 10, padding: "10px 14px", marginBottom: 8, opacity: parent.active === false ? 0.45 : 1 }}>
             {editingItem?.id === parent.id ? (
               <div>
-                <input value={editingItem.name} onChange={e => setEditingItem(f => ({ ...f, name: e.target.value }))} style={{ ...inp, marginBottom: 8 }} />
+                <input autoComplete="off" value={editingItem.name} onChange={e => setEditingItem(f => ({ ...f, name: e.target.value }))} style={{ ...inp, marginBottom: 8 }} />
                 <div style={{ display: "flex", gap: 8 }}>
                   <button onClick={saveEditItem} style={{ fontSize: 12, padding: "6px 14px", background: "#8B1A2B", color: "#fff", border: "none", borderRadius: 7, cursor: "pointer" }}>Save</button>
                   <button onClick={() => setEditingItem(null)} style={{ fontSize: 12, padding: "6px 14px", background: "none", border: "1px solid #ddd", borderRadius: 7, cursor: "pointer" }}>Cancel</button>
@@ -1489,7 +1489,7 @@ function Admin({ users, refreshUsers, items, refreshItems, user, can, printerIps
                 <div key={child.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "3px 0", opacity: child.active === false ? 0.45 : 1 }}>
                   {editingItem?.id === child.id ? (
                     <div style={{ display: "flex", gap: 8, flex: 1 }}>
-                      <input value={editingItem.name} onChange={e => setEditingItem(f => ({ ...f, name: e.target.value }))} style={{ ...inp, flex: 1 }} />
+                      <input autoComplete="off" value={editingItem.name} onChange={e => setEditingItem(f => ({ ...f, name: e.target.value }))} style={{ ...inp, flex: 1 }} />
                       <select value={editingItem.parent_id || ""} onChange={e => setEditingItem(f => ({ ...f, parent_id: e.target.value || null }))} style={{ ...inp, flex: 1 }}>
                         <option value="">No parent</option>
                         {parentItems.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
@@ -1548,7 +1548,7 @@ function Admin({ users, refreshUsers, items, refreshItems, user, can, printerIps
                 </label>
               </div>
               <div style={{ display: "flex", gap: 8, alignItems: "center", opacity: paper ? 1 : 0.5 }}>
-                <input
+                <input autoComplete="off"
                   value={edited}
                   onChange={e => setPrinterEdits(prev => ({ ...prev, [loc.id]: e.target.value }))}
                   placeholder="e.g. 192.168.4.200"
