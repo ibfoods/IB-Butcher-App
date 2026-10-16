@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { supabase } from "./supabase";
 
 const LOCS = [
@@ -1094,8 +1094,26 @@ function Customers({ customers, refreshCustomers, orders, orderItemsMap, items, 
   const [sel, setSel] = useState(null);
   const [edit, setEdit] = useState(null);
   const [err, setErr] = useState("");
-  const custOrders = (c) => orders.filter(o => o.customer_id === c.id).sort((a, b) => (b.pickup_date || "").localeCompare(a.pickup_date || "") || (b.invoice_number || 0) - (a.invoice_number || 0));
+  const [sf, setSf] = useState(activeLoc || "");   // store filter: "" = all stores
+  const byCust = useMemo(() => {
+    const m = {};
+    for (const o of orders) { if (o.customer_id) (m[o.customer_id] = m[o.customer_id] || []).push(o); }
+    return m;
+  }, [orders]);
+  const custOrders = (c) => (byCust[c.id] || []).slice().sort((a, b) => (b.pickup_date || "").localeCompare(a.pickup_date || "") || (b.invoice_number || 0) - (a.invoice_number || 0));
+  // Home store: the saved one, otherwise the store they've ordered from most
+  const homeOf = (c) => {
+    if (c.home_location_id) return c.home_location_id;
+    const counts = {};
+    for (const o of byCust[c.id] || []) counts[o.location_id] = (counts[o.location_id] || 0) + 1;
+    return Object.keys(counts).sort((a, b) => counts[b] - counts[a])[0] || null;
+  };
+  // A customer shows under a store if it's their home store OR they've ever ordered there
+  const atStore = (c, s) => homeOf(c) === s || (byCust[c.id] || []).some(o => o.location_id === s);
+  const locName = (id) => LOCS.find(l => l.id === id)?.name || "";
+  const storeCount = (s) => s ? customers.filter(c => atStore(c, s)).length : customers.length;
   const list = customers.filter(c => {
+    if (sf && !atStore(c, sf)) return false;
     if (!q.trim()) return true;
     const t = q.trim().toLowerCase(); const d = digits(t);
     return (c.name || "").toLowerCase().includes(t) || (d.length >= 3 && (c.phone_digits || "").includes(d)) || (c.email || "").toLowerCase().includes(t);
@@ -1104,7 +1122,7 @@ function Customers({ customers, refreshCustomers, orders, orderItemsMap, items, 
   const save = async () => {
     if (!edit.name?.trim() || !digits(edit.phone)) { setErr("Name and phone are required."); return; }
     const parts = edit.name.trim().split(" ");
-    const { error } = await supabase.from("customers").update({ name: edit.name.trim(), first_name: parts[0], last_name: parts.slice(1).join(" ") || null, phone: formatPhone(edit.phone), email: edit.email?.trim() || null, notes: edit.notes?.trim() || null, updated_at: new Date().toISOString() }).eq("id", edit.id);
+    const { error } = await supabase.from("customers").update({ name: edit.name.trim(), first_name: parts[0], last_name: parts.slice(1).join(" ") || null, phone: formatPhone(edit.phone), email: edit.email?.trim() || null, notes: edit.notes?.trim() || null, home_location_id: edit.home_location_id || null, updated_at: new Date().toISOString() }).eq("id", edit.id);
     if (error) { setErr(error.message.includes("phone_digits") ? "Another customer already has that phone number." : error.message); return; }
     await refreshCustomers(); setSel({ ...edit }); setEdit(null); setErr("");
   };
@@ -1121,6 +1139,7 @@ function Customers({ customers, refreshCustomers, orders, orderItemsMap, items, 
               <F label="Name"><input autoComplete="one-time-code" name="nofill" data-lpignore="true" data-1p-ignore="true" value={edit.name} onChange={e => setEdit(f => ({ ...f, name: e.target.value }))} style={inp} /></F>
               <F label="Phone"><input autoComplete="one-time-code" name="nofill" data-lpignore="true" data-1p-ignore="true" value={edit.phone} onChange={e => setEdit(f => ({ ...f, phone: formatPhone(e.target.value) }))} style={inp} /></F>
               <F label="Email"><input autoComplete="one-time-code" name="nofill" data-lpignore="true" data-1p-ignore="true" type="email" value={edit.email || ""} onChange={e => setEdit(f => ({ ...f, email: e.target.value }))} style={inp} /></F>
+              <F label="Home store"><select value={edit.home_location_id || ""} onChange={e => setEdit(f => ({ ...f, home_location_id: e.target.value }))} style={inp}><option value="">— Not set —</option>{LOCS.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}</select></F>
               <F label="Notes"><textarea autoComplete="one-time-code" name="nofill" data-lpignore="true" data-1p-ignore="true" value={edit.notes || ""} onChange={e => setEdit(f => ({ ...f, notes: e.target.value }))} rows={2} style={{ ...inp, fontFamily: "inherit" }} placeholder="Preferences, allergies, anything staff should know" /></F>
               {err && <p style={{ color: "#c62828", fontSize: 12, marginBottom: 8 }}>{err}</p>}
               <div style={{ display: "flex", gap: 8 }}>
@@ -1134,9 +1153,9 @@ function Customers({ customers, refreshCustomers, orders, orderItemsMap, items, 
                 <p style={{ fontSize: 17, fontWeight: 600, margin: 0 }}>{c.name}</p>
                 <p style={{ fontSize: 13, color: "#555", margin: "3px 0 0" }}>{c.phone}{c.email ? ` · ${c.email}` : ""}</p>
                 {c.notes && <p style={{ fontSize: 12, color: "#8B1A2B", margin: "6px 0 0", background: "#faf5f6", padding: "6px 8px", borderRadius: 6 }}>{c.notes}</p>}
-                <p style={{ fontSize: 11, color: "#888", margin: "8px 0 0" }}>{os.length} order{os.length === 1 ? "" : "s"}{c.home_location_id ? ` · usually ${LOCS.find(l => l.id === c.home_location_id)?.name}` : ""}</p>
+                <p style={{ fontSize: 11, color: "#888", margin: "8px 0 0" }}>{os.length} order{os.length === 1 ? "" : "s"}{homeOf(c) ? ` · Home store: ${locName(homeOf(c))}` : ""}</p>
               </div>
-              <button onClick={() => setEdit({ ...c })} style={{ fontSize: 12, color: "#8B1A2B", background: "none", border: "1px solid #8B1A2B", borderRadius: 7, padding: "5px 12px", cursor: "pointer", whiteSpace: "nowrap" }}>Edit</button>
+              <button onClick={() => setEdit({ ...c, home_location_id: homeOf(c) || "" })} style={{ fontSize: 12, color: "#8B1A2B", background: "none", border: "1px solid #8B1A2B", borderRadius: 7, padding: "5px 12px", cursor: "pointer", whiteSpace: "nowrap" }}>Edit</button>
             </div>
           )}
         </div>
@@ -1161,7 +1180,13 @@ function Customers({ customers, refreshCustomers, orders, orderItemsMap, items, 
 
   return (
     <div style={{ maxWidth: 560 }}>
-      <p style={{ fontSize: 15, fontWeight: 500, marginBottom: "1rem" }}>Customers <span style={{ color: "#888", fontWeight: 400, fontSize: 13 }}>({customers.length})</span></p>
+      <p style={{ fontSize: 15, fontWeight: 500, marginBottom: 10 }}>Customers <span style={{ color: "#888", fontWeight: 400, fontSize: 13 }}>({list.length}{sf ? ` at ${locName(sf)}` : ""})</span></p>
+      <div style={{ display: "flex", gap: 6, overflowX: "auto", marginBottom: 10, paddingBottom: 2 }}>
+        {[{ id: "", name: "All stores" }, ...LOCS].map(l => {
+          const on = sf === l.id;
+          return <button key={l.id || "all"} onClick={() => setSf(l.id)} style={{ flex: "0 0 auto", fontSize: 12, padding: "6px 12px", borderRadius: 16, cursor: "pointer", whiteSpace: "nowrap", border: `1px solid ${on ? "#8B1A2B" : "#ddd"}`, background: on ? "#8B1A2B" : "#fff", color: on ? "#fff" : "#444", fontWeight: on ? 600 : 400 }}>{l.name} <span style={{ opacity: 0.7 }}>{storeCount(l.id)}</span></button>;
+        })}
+      </div>
       <input autoComplete="one-time-code" name="nofill" data-lpignore="true" data-1p-ignore="true" value={q} onChange={e => setQ(e.target.value)} placeholder="Search name, phone, or email" style={{ ...inp, fontSize: 15, marginBottom: 12 }} />
       {list.slice(0, 100).map(c => {
         const n = custOrders(c).length;
@@ -1170,10 +1195,10 @@ function Customers({ customers, refreshCustomers, orders, orderItemsMap, items, 
             <p style={{ fontSize: 13, fontWeight: 500, margin: 0 }}>{c.name}</p>
             <p style={{ fontSize: 12, color: "#888", margin: "2px 0 0", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.phone}{c.email ? ` · ${c.email}` : ""}</p>
           </div>
-          <span style={{ fontSize: 11, color: "#888", whiteSpace: "nowrap" }}>{n} order{n === 1 ? "" : "s"} ›</span>
+          <span style={{ fontSize: 11, color: "#888", whiteSpace: "nowrap", textAlign: "right" }}>{n} order{n === 1 ? "" : "s"} ›{homeOf(c) && (!sf || homeOf(c) !== sf) && <><br /><span style={{ color: homeOf(c) === sf ? "#888" : "#8B1A2B" }}>{locName(homeOf(c))}</span></>}</span>
         </div>;
       })}
-      {list.length === 0 && <p style={{ color: "#888", fontSize: 13 }}>No customers match.</p>}
+      {list.length === 0 && <p style={{ color: "#888", fontSize: 13 }}>{q.trim() ? "No customers match." : `No customers at ${locName(sf)} yet.`}{sf && <> <button onClick={() => setSf("")} style={{ background: "none", border: "none", color: "#8B1A2B", fontSize: 13, cursor: "pointer", padding: 0, textDecoration: "underline" }}>Search all stores</button></>}</p>}
       {list.length > 100 && <p style={{ color: "#888", fontSize: 12 }}>Showing first 100 — narrow your search.</p>}
     </div>
   );
