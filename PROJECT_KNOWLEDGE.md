@@ -1,6 +1,36 @@
 # IB Butcher App — Project Knowledge
 
-_Last updated: August 27, 2026_
+_Last updated: October 16, 2026_
+
+## Start here — next session (set Oct 16, 2026)
+
+**Decision: email-only receipts for now.** Paper/thermal printing is on hold.
+1. **Email receipt design pass** (top priority). Send a sample receipt to Mike's inbox first so
+   he can see the current design as a customer would, then polish. Current state (Sept 12):
+   wordmark header on white + maroon rule (#900027), greeting, large order number, pickup
+   callout, items, branded footer, inline CID logo, PDF receipt attached (pdfkit).
+   Code: `api/send-receipt.js`, logo in `api/_logo.js`, wordmark in `public/brand/`.
+2. Turn Woodbury's paper-receipt toggle OFF (Admin → Printers) once email-only is confirmed.
+3. Security follow-ups:
+   - Both repos (`IB-Butcher-App`, `IB-Sandwich-App`) are **public** — Mike to switch to Private.
+     History scan Oct 16: no API keys/tokens committed; exposed only WiFi password (now removed
+     from this file, still in git history), tunnel ID, internal IPs. Sandwich repo has the
+     Supabase anon key in commit 143a694 (anon = public by design; fine if RLS is on).
+   - Rotate the old GitHub PAT and Vercel API token (both pasted in past chats). The PAT is no
+     longer needed — see GitHub access below.
+   - Change IBFWoodbury WiFi password at some point (low priority; Epson needs it too).
+   - Supabase connector in Claude currently only sees the OrderHQ org — reconnect it to the
+     ibfoods Supabase account so Claude can run advisors / migrations directly.
+4. Then: Zebra label physical test, other open to-dos below.
+
+**GitHub access (Oct 16):** `ibfoods` is a GitHub *personal account* (not an org). The Claude
+GitHub App is now installed on it, so Claude pushes directly — no PAT needed. OrderHQ lives
+separately under the `orderhq-app` org; keep IB work in `ibfoods/*` repos only.
+
+**Shipped Oct 16:** Customers screen store filter — pills (All stores + 5 stores, with counts),
+defaults to the active store; a customer appears under a store if it's their home store or
+they've ordered there; home store falls back to most-ordered store when `home_location_id`
+is null; home store editable in customer Edit. Frontend only, no DB change.
 
 ## What it is
 A custom order-management web app for Iavarone Bros. (IB Foods), a 5-location specialty
@@ -109,7 +139,7 @@ iPad PWA → Vercel `/api/print-relay` → Cloudflare Tunnel → Node.js relay o
 **Printer:** Epson TM-T88VII + OT-WL06 WiFi dongle
 - IP: `192.168.30.31` (static)
 - MAC: `DC:CD:2F:1E:38:70`
-- Network: IBFWoodbury (WPA2-PSK, password: ibflmdpos1234)
+- Network: IBFWoodbury (WPA2-PSK, password: ask Mike, not stored in this repo)
 - Port: 9100 (raw ESC/POS TCP)
 - WebConfig backup saved — if printer loses WiFi, restore via WebConfig before redoing SimpleAP
 
@@ -136,7 +166,7 @@ iPad PWA → Vercel `/api/print-relay` → Cloudflare Tunnel → Node.js relay o
 
 ### If printer loses WiFi after power outage
 1. Open WebConfig at `192.168.30.31` (if reachable) → try Restore from backup first
-2. If not reachable: use Epson TM Utility on iPhone → SimpleAP setup → IBFWoodbury / ibflmdpos1234 / static IP 192.168.30.31 / subnet 255.255.255.0 / gateway 192.168.30.1
+2. If not reachable: use Epson TM Utility on iPhone → SimpleAP setup → IBFWoodbury / (WiFi password from Mike) / static IP 192.168.30.31 / subnet 255.255.255.0 / gateway 192.168.30.1
 3. After reconnecting, do a fresh WebConfig backup immediately
 
 ### Other 4 locations — printer rollout plan
@@ -166,6 +196,8 @@ iPad PWA → Vercel `/api/print-relay` → Cloudflare Tunnel → Node.js relay o
 - **OrderHQ** — eventual multi-tenant SaaS product, separate project/context
 
 ## Outstanding to-dos
+- [ ] Email receipt design polish (email-only decision, Oct 16) — see "Start here"
+- [ ] Make repos private; rotate old PAT + Vercel token; reconnect Supabase connector to ibfoods
 - [ ] Clean up test orders in production data
 - [ ] Add remaining staff users
 - [ ] iPad + Star TSP143 label printer test pass
