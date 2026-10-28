@@ -126,6 +126,24 @@ newhydepark@ibfoods.com.
   - Printers tab: per-location printer IP input, stored in Supabase `printer_settings` table
     (`location_id text primary key, printer_ip text, updated_at timestamptz`)
 
+## Zebra label printing — BUILT Oct 28, 2026
+- Labels now print straight to the Zebra GK420t in ZPL through **Zebra Browser Print**
+  (local helper at `http://localhost:9100`). Code: `src/zebraPrint.js` (Browser Print client
+  copied verbatim from OrderHQ; butcher layout renderer; label-count rule).
+- Facts (proven in OrderHQ): 203 dpi; 4.25 x 2.75 in stock feeds the WIDE way, no rotation;
+  `^PW831` (4.09 in head); 0.12 in margins; lowest text >= 0.22 in above the bottom edge.
+  The old `/zpl` template (`^PW812 ^LL508`, 4 x 2.5) is superseded — don't use it.
+- Every label button (order detail, Orders day button, Reports -> Production) uses `LabelPrint`:
+  Zebra is the default; the browser print window is the backup (now sized 4.25 x 2.75).
+  Managers+ see the Zebra status line + download link when Browser Print isn't found.
+- Orders day-labels button now always shows when search is empty (uses the picked date,
+  or today on Upcoming/All) and shows the count.
+- Label count rule (OrderHQ): items have `sold_by` (each | lb | person) and `label_mode`
+  (default | each | line). Default: sold each -> one label per piece ("1 of 3"); sold by
+  lb/person -> one label per line ("5 LB"). Qty < 2 or decimal -> always 1 label.
+  Migration: `sql/2026-10-28_item_label_settings.sql` (must be run in Supabase SQL editor).
+- Order quantities are still whole numbers only (parseInt in the order form).
+
 ## Printer Architecture — Relay + Named Cloudflare Tunnel (FULLY WORKING as of Aug 27, 2026)
 
 ### Why the relay exists

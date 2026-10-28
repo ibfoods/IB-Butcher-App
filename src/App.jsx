@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { supabase } from "./supabase";
+import { findZebraPrinter, printZpl, buildLabels, zplForLabels } from "./zebraPrint";
 
 const LOCS = [
   { id: "nhp", name: "New Hyde Park", address: "1538 Union Turnpike, Lake Success Center", city: "New Hyde Park, NY 11040", phone: "(516) 488-5600" },
@@ -166,22 +167,17 @@ function printReceiptBrowser(order, orderItems, items, locs) {
   w.document.close();
 }
 
-function labelHTML(orders, orderItemsMap, items, locs) {
+const LABEL_FMT = { date: (d) => fmtDate(d), time: (t) => fmtTime(t) };
+const htmlEsc = (v) => String(v ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+// Backup path: the browser print window. Sized to the real stock
+// (4.25 x 2.75 in, feeding the wide way) with content kept inside the
+// 4.09 in print head, 0.12 in margins and 0.22 in clear at the bottom.
+// The Windows driver's paper size must also be 4.25 x 2.75 for this to land right.
+function labelHTML(labels) {
   const logoUrl = window.location.origin + LOGO_URL;
-  // One label per item line — same order info, different item name per label
-  const allLabels = [];
-  orders.forEach(o => {
-    const loc = locs.find(l => l.id === o.location_id);
-    const lineItems = (orderItemsMap[o.id] || []);
-    lineItems.forEach(li => {
-      const item = items.find(i => i.id === li.item_id);
-      const itemLabel = `${li.quantity > 1 ? `${li.quantity}x ` : ""}${item?.name || ""}`;
-      allLabels.push({ o, loc, itemLabel });
-    });
-  });
-  const labelsHtml = allLabels.map(({ o, loc, itemLabel }) => {
-    return `
-      <div class="label">
+  const labelsHtml = labels.map(p => `
+      <div class="label"><div class="inner">
         <div class="top-row">
           <div class="logo-area">
             <img src="${logoUrl}" class="logo" />
@@ -189,81 +185,149 @@ function labelHTML(orders, orderItemsMap, items, locs) {
           </div>
           <div class="customer-block">
             <div class="customer-lbl">CUSTOMER</div>
-            <div class="customer">${o.customer_name}</div>
+            <div class="customer">${htmlEsc(p.customer)}</div>
           </div>
           <div class="order-box">
             <div class="order-lbl">ORDER</div>
-            <div class="daily-num">${o.daily_number}</div>
+            <div class="daily-num">${htmlEsc(p.dailyNumber)}</div>
           </div>
         </div>
         <div class="middle-band">
-          <div class="item-lbl">ITEM</div>
-          <div class="item">${itemLabel}</div>
-          ${o.notes ? `<div class="notes">${o.notes}</div>` : ""}
+          <div class="item-row"><span class="item-lbl">ITEM</span>${p.tag ? `<span class="tag">${htmlEsc(p.tag)}</span>` : ""}</div>
+          <div class="item">${htmlEsc(p.itemName)}</div>
+          ${p.note ? `<div class="notes">${htmlEsc(p.note)}</div>` : ""}
         </div>
         <div class="footer">
-          <div class="footer-col">
-            <div class="footer-lbl">PICKUP</div>
-            <div class="footer-val">${fmtDate(o.pickup_date)} ${fmtTime(o.pickup_time)}</div>
-          </div>
-          <div class="footer-col">
-            <div class="footer-lbl">INVOICE</div>
-            <div class="footer-val">#${o.invoice_number}</div>
-          </div>
-          <div class="footer-col">
-            <div class="footer-lbl">LOCATION</div>
-            <div class="footer-val">${loc?.name || ""}</div>
-          </div>
+          <div class="footer-col"><div class="footer-lbl">PICKUP</div><div class="footer-val">${htmlEsc(p.pickup)}</div></div>
+          <div class="footer-col"><div class="footer-lbl">INVOICE</div><div class="footer-val">${htmlEsc(p.invoice)}</div></div>
+          <div class="footer-col"><div class="footer-lbl">LOCATION</div><div class="footer-val">${htmlEsc(p.location)}</div></div>
         </div>
-      </div>
-    `;
-  }).join('<div class="page-break"></div>');
+      </div></div>`).join("");
 
   return `<!DOCTYPE html><html><head><title>Labels</title><style>
-    @page { size: 4in 2.5in landscape; margin: 0mm; }
-    @media print { html, body { margin: 0 !important; padding: 0 !important; } html { zoom: 1; -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
+    @page { size: 4.25in 2.75in; margin: 0; }
+    @media print { html, body { margin: 0 !important; padding: 0 !important; } html { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body { font-family: Arial, sans-serif; background: white; }
-    .label { width: 100%; height: 100vh; max-width: 4in; max-height: 2.5in; padding: 0.1in 0.13in; display: flex; flex-direction: column; justify-content: space-between; overflow: hidden; }
-    .page-break { page-break-after: always; }
-    .top-row { display: flex; justify-content: space-between; align-items: center; }
-    .logo-area { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; flex-shrink: 0; }
-    .logo { width: 0.65in; height: 0.65in; object-fit: contain; }
+    .label { width: 4.25in; height: 2.75in; overflow: hidden; page-break-after: always; break-after: page; }
+    .label:last-child { page-break-after: auto; break-after: auto; }
+    .inner { width: 4.09in; height: 2.75in; margin: 0 0.08in; padding: 0.12in 0.04in 0.22in; display: flex; flex-direction: column; overflow: hidden; }
+    .top-row { display: flex; justify-content: space-between; align-items: flex-start; gap: 0.08in; }
+    .logo-area { display: flex; flex-direction: column; align-items: center; flex-shrink: 0; }
+    .logo { width: 0.62in; height: 0.62in; object-fit: contain; }
     .website { font-size: 6pt; color: #000; }
-    .customer-block { flex: 1; text-align: center; padding: 0 0.1in; }
-    .customer-lbl { font-size: 7pt; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; color: #000; }
-    .customer { font-size: 15pt; font-weight: 900; line-height: 1.1; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-    .order-box { border: 2.5px solid #000; padding: 2px 10px; min-width: 0.7in; text-align: center; flex-shrink: 0; }
-    .order-lbl { font-size: 6pt; white-space: nowrap; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; color: #000; }
-    .daily-num { font-size: 32pt; font-weight: 900; line-height: 1; color: #000; }
-    .middle-band { border-top: 1.5px solid #000; border-bottom: 1.5px solid #000; padding: 0.04in 0; flex: 1; display: flex; flex-direction: column; justify-content: center; }
-    .item-lbl { font-size: 7pt; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; color: #000; margin-bottom: 2px; }
-    .item { font-size: 13pt; font-weight: 900; line-height: 1.1; overflow: hidden; }
-    .notes { font-size: 9pt; font-weight: 700; color: #000; margin-top: 3px; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
-    .footer { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0 0.08in; padding-top: 0.05in; }
-    .footer-lbl { font-size: 7pt; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: #000; }
-    .footer-val { font-size: 8.5pt; font-weight: 700; margin-top: 1px; white-space: nowrap; color: #000; }
+    .customer-block { flex: 1; min-width: 0; text-align: center; padding-top: 0.06in; }
+    .customer-lbl, .order-lbl, .item-lbl, .footer-lbl { font-size: 7pt; font-weight: 700; letter-spacing: 1px; color: #000; }
+    .customer { font-size: 16pt; font-weight: 900; line-height: 1.1; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+    .order-box { border: 2.5px solid #000; width: 0.85in; height: 0.72in; text-align: center; flex-shrink: 0; padding-top: 0.04in; }
+    .daily-num { font-size: 28pt; font-weight: 900; line-height: 1; }
+    .middle-band { border-top: 1.5px solid #000; border-bottom: 1.5px solid #000; margin-top: 0.05in; padding: 0.05in 0; flex: 1; min-height: 0; overflow: hidden; }
+    .item-row { display: flex; justify-content: space-between; align-items: baseline; }
+    .tag { font-size: 11pt; font-weight: 900; }
+    .item { font-size: 17pt; font-weight: 900; line-height: 1.1; max-height: 2.2em; overflow: hidden; margin-top: 2px; }
+    .notes { font-size: 10pt; color: #000; margin-top: 3px; max-height: 2.4em; overflow: hidden; }
+    .footer { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 0 0.06in; padding-top: 0.05in; }
+    .footer-val { font-size: 10pt; font-weight: 700; margin-top: 1px; white-space: nowrap; overflow: hidden; }
   </style></head><body>
     ${labelsHtml}
     <script>
       window.onload = function() {
-        var imgs = document.querySelectorAll('img');
-        var loaded = 0;
-        if (imgs.length === 0) { window.print(); return; }
+        var imgs = document.querySelectorAll('img'); var left = imgs.length;
+        if (!left) { window.print(); return; }
         imgs.forEach(function(img) {
-          if (img.complete) { loaded++; if (loaded === imgs.length) window.print(); }
-          else { img.onload = function() { loaded++; if (loaded === imgs.length) window.print(); }; }
+          var done = function() { if (--left === 0) window.print(); };
+          if (img.complete) done(); else { img.onload = done; img.onerror = done; }
         });
       };
     <\/script>
   </body></html>`;
 }
 
-function printLabels(orders, orderItemsMap, items, locs) {
+function labelsFor(orders, orderItemsMap, items) {
+  return buildLabels(orders, orderItemsMap, items, LOCS, LABEL_FMT);
+}
+
+// Opens the browser print window. Must run inside a click (popup blockers).
+function printLabelsDialog(labels) {
   const w = window.open("", "_blank");
   if (!w) { alert("Please allow popups to print."); return; }
-  w.document.write(labelHTML(orders, orderItemsMap, items, locs));
+  w.document.write(labelHTML(labels));
   w.document.close();
+}
+
+// ---- Zebra Browser Print detection, shared by every label button ----
+const ZEBRA_DL = "https://www.zebra.com/us/en/support-downloads/software/printer-software/browser-print.html";
+let zebraState = { status: "idle", device: null };   // idle | checking | found | none
+const zebraSubs = new Set();
+const setZebra = (st) => { zebraState = st; zebraSubs.forEach(f => f(st)); };
+let zebraCheck = null;
+function detectZebra() {
+  if (zebraCheck) return zebraCheck;
+  setZebra({ ...zebraState, status: "checking" });
+  zebraCheck = findZebraPrinter().then(dev => {
+    setZebra(dev ? { status: "found", device: dev } : { status: "none", device: null });
+  }).finally(() => { zebraCheck = null; });
+  return zebraCheck;
+}
+function useZebra() {
+  const [st, setSt] = useState(zebraState);
+  useEffect(() => {
+    zebraSubs.add(setSt);
+    if (zebraState.status !== "checking") detectZebra();
+    return () => { zebraSubs.delete(setSt); };
+  }, []);
+  return st;
+}
+
+// One label-print control. Zebra is the default; the print window is the backup.
+// getLabels: () => label payloads. showStatus: manager+ see the setup/status line.
+function LabelPrint({ getLabels, caption = "", showStatus = false, style = {}, onPrinted }) {
+  const zebra = useZebra();
+  const [msg, setMsg] = useState(null);   // { ok, text }
+  const [busy, setBusy] = useState(false);
+  const count = getLabels().length;
+  const noun = count === 1 ? "label" : "labels";
+  const suffix = caption ? ` — ${caption}` : "";
+  const btn = { whiteSpace: "nowrap", padding: "7px 12px", background: "#fff", color: "#8B1A2B", border: "1px solid #8B1A2B", borderRadius: 8, fontSize: 12, cursor: "pointer" };
+  const link = { background: "none", border: "none", color: "#8B1A2B", fontSize: 11, cursor: "pointer", padding: 0, textDecoration: "underline" };
+
+  const toZebra = async () => {
+    const labels = getLabels();
+    if (!labels.length) { alert(`No labels to print${suffix}.`); return; }
+    setBusy(true); setMsg(null);
+    try {
+      await printZpl(zebra.device, zplForLabels(labels));
+      setMsg({ ok: true, text: `Sent ${labels.length} to Zebra ✓` });
+      onPrinted && onPrinted();
+    } catch (e) {
+      setMsg({ ok: false, text: `Zebra print failed — try the dialog. (${e.message || e})` });
+    } finally { setBusy(false); }
+  };
+  const toDialog = () => {
+    const labels = getLabels();
+    if (!labels.length) { alert(`No labels to print${suffix}.`); return; }
+    setMsg(null);
+    printLabelsDialog(labels);
+    onPrinted && onPrinted();
+  };
+  const found = zebra.status === "found";
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 4, ...style }}>
+      <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+        {found
+          ? <button onClick={toZebra} disabled={busy} style={{ ...btn, opacity: busy ? 0.6 : 1 }}>🏷 {busy ? "Sending…" : `Print ${count} to Zebra${suffix}`}</button>
+          : <button onClick={toDialog} style={btn}>🏷 Print {count} {noun}{suffix}</button>}
+        {found && <button onClick={toDialog} style={link}>or use print dialog</button>}
+      </div>
+      {msg && <p style={{ fontSize: 11, margin: 0, color: msg.ok ? "#2e7d32" : "#c62828" }}>{msg.text}</p>}
+      {showStatus && zebra.status === "found" && <p style={{ fontSize: 11, color: "#2e7d32", margin: 0 }}>Zebra connected: {zebra.device?.name || "printer"} — labels print silently at exact size.</p>}
+      {showStatus && zebra.status === "checking" && <p style={{ fontSize: 11, color: "#888", margin: 0 }}>Looking for Zebra printer…</p>}
+      {showStatus && zebra.status === "none" && <p style={{ fontSize: 11, color: "#888", margin: 0 }}>
+        No Zebra helper found — printing uses the browser dialog. For silent exact-size printing, <a href={ZEBRA_DL} target="_blank" rel="noopener noreferrer" style={{ color: "#8B1A2B" }}>install Zebra Browser Print</a>. <button onClick={() => detectZebra()} style={link}>Check again</button>
+      </p>}
+    </div>
+  );
 }
 
 function F({ label, children }) {
@@ -363,7 +427,7 @@ export default function App() {
         {view === "orders" && <Orders key={activeLoc} activeLoc={activeLoc} user={user} orders={orders} orderItemsMap={orderItemsMap} refresh={refreshOrders} inv={inv} refreshInv={refreshInv} items={items} can={can} printerIps={printerIps} paperOn={paperOn} />}
         {view === "new_order" && <NewOrder key={activeLoc} activeLoc={activeLoc} user={user} orders={orders} refresh={refreshOrders} inv={inv} refreshInv={refreshInv} items={items} setView={setView} printerIps={printerIps} paperOn={paperOn} customers={customers} refreshCustomers={refreshCustomers} />}
         {view === "customers" && <Customers customers={customers} refreshCustomers={refreshCustomers} orders={orders} orderItemsMap={orderItemsMap} items={items} activeLoc={activeLoc} />}
-        {view === "reports" && <Reports key={activeLoc} activeLoc={activeLoc} orders={orders} orderItemsMap={orderItemsMap} items={items} user={user} />}
+        {view === "reports" && <Reports key={activeLoc} activeLoc={activeLoc} orders={orders} orderItemsMap={orderItemsMap} items={items} user={user} can={can} />}
         {view === "inventory" && can("manager") && <Inventory activeLoc={activeLoc} can={can} inv={inv} refreshInv={refreshInv} items={items} user={user} />}
         {view === "admin" && can("manager") && <Admin users={users} refreshUsers={refreshUsers} items={items} refreshItems={refreshItems} user={user} can={can} printerIps={printerIps} setPrinterIps={setPrinterIps} paperOn={paperOn} setPaperOn={setPaperOn} />}
       </div>
@@ -651,7 +715,7 @@ function Orders({ activeLoc, user, orders, orderItemsMap, refresh, inv, refreshI
                 <div style={{ display: "flex", gap: 8, marginTop: 12, flexWrap: "wrap" }}>
                   <button onClick={() => startEdit(detail)} style={{ flex: 1, background: "#fff", color: "#555", border: "1px solid #ddd", borderRadius: 8, padding: 9, fontSize: 13, cursor: "pointer" }}>Edit</button>
                   {paperOn[detail.location_id] && <button onClick={() => { setDetail(null); setTimeout(() => printReceipt(detail, orderItemsMap[detail.id] || [], items, LOCS, printerIps), 200); }} style={{ flex: 1, background: "#fff", color: "#555", border: "1px solid #ddd", borderRadius: 8, padding: 9, fontSize: 13, cursor: "pointer" }}>Print receipt</button>}
-                  <button onClick={() => { setDetail(null); setTimeout(() => printLabels([detail], { [detail.id]: orderItemsMap[detail.id] || [] }, items, LOCS), 200); }} style={{ flex: 1, background: "#fff", color: "#8B1A2B", border: "1px solid #8B1A2B", borderRadius: 8, padding: 9, fontSize: 13, cursor: "pointer" }}>Print label</button>
+                  <LabelPrint getLabels={() => labelsFor([detail], { [detail.id]: orderItemsMap[detail.id] || [] }, items)} showStatus={can("manager")} style={{ flex: "1 1 100%" }} />
                 </div>
                 {/* Email receipt */}
                 <div style={{ border: "1px solid #e8e8e8", borderRadius: 8, padding: "10px 12px", marginTop: 8 }}>
@@ -753,14 +817,11 @@ function Orders({ activeLoc, user, orders, orderItemsMap, refresh, inv, refreshI
       <div style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap", alignItems: "center" }}>
         <input autoComplete="one-time-code" name="nofill" data-lpignore="true" data-1p-ignore="true" value={search} onChange={e => setSearch(e.target.value)} placeholder="Search all orders — name, phone, or invoice #" style={{ flex: 1, minWidth: 180, padding: "8px 12px", border: "1px solid #ddd", borderRadius: 8, fontSize: 13 }} />
         {!activeLoc && <select value={lf} onChange={e => setLf(e.target.value)} style={{ minWidth: 130, padding: "7px 10px", border: "1px solid #ddd", borderRadius: 8, fontSize: 13 }}><option value="">All locations</option>{LOCS.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}</select>}
-        {(range === "today" || range === "tomorrow" || range === "date") && !searching && <button
-          onClick={() => {
-            const dayOrders = orders.filter(o => o.pickup_date === df && o.status !== "cancelled" && (!lf || o.location_id === lf)).sort((a, b) => a.daily_number - b.daily_number);
-            if (dayOrders.length === 0) { alert(`No orders found for ${fmtDate(df)}.`); return; }
-            printLabels(dayOrders, orderItemsMap, items, LOCS);
-          }}
-          style={{ whiteSpace: "nowrap", padding: "7px 12px", background: "#fff", color: "#8B1A2B", border: "1px solid #8B1A2B", borderRadius: 8, fontSize: 12, cursor: "pointer" }}
-        >🏷 Labels ({fmtDate(df)})</button>}
+        {!searching && (() => {
+          const labelDay = df || today;
+          const dayOrders = orders.filter(o => o.pickup_date === labelDay && o.status !== "cancelled" && (!lf || o.location_id === lf)).sort((a, b) => a.daily_number - b.daily_number);
+          return <LabelPrint getLabels={() => labelsFor(dayOrders, orderItemsMap, items)} caption={fmtDateLongShort(labelDay)} showStatus={can("manager")} />;
+        })()}
       </div>
 
       {/* Summary line */}
@@ -1204,7 +1265,7 @@ function Customers({ customers, refreshCustomers, orders, orderItemsMap, items, 
   );
 }
 
-function Reports({ activeLoc, orders, orderItemsMap, items, user }) {
+function Reports({ activeLoc, orders, orderItemsMap, items, user, can }) {
   const [type, setType] = useState("popularity");
   const [from, setFrom] = useState(tod());
   const [to, setTo] = useState(tod());
@@ -1351,7 +1412,7 @@ function Reports({ activeLoc, orders, orderItemsMap, items, user }) {
         {type === "popularity" && <button onClick={printPop} style={{ ...inp, width: "auto", background: "#fff", cursor: "pointer" }}>Print</button>}
         {type === "production" && <>
           <button onClick={printProd} style={{ ...inp, width: "auto", background: "#fff", cursor: "pointer" }}>Print</button>
-          <button onClick={() => printLabels(prod, orderItemsMap, items, LOCS)} style={{ ...inp, width: "auto", background: "#fff", cursor: "pointer", color: "#8B1A2B", borderColor: "#8B1A2B" }}>Print labels</button>
+          <LabelPrint getLabels={() => labelsFor(prod, orderItemsMap, items)} caption={from === to ? fmtDateLongShort(from) : `${fmtDate(from)} – ${fmtDate(to)}`} showStatus={can("manager")} />
         </>}
       </div>
       {type === "popularity" && <div>
@@ -1495,6 +1556,26 @@ function Inventory({ activeLoc, can, inv, refreshInv, items, user }) {
   );
 }
 
+const SOLD_BY = [["each", "Each (by the piece)"], ["lb", "By the pound (lb)"], ["person", "Per person"]];
+const LABEL_MODES = [["default", "Default (follow Sold by)"], ["each", "Label each piece"], ["line", "One label per line"]];
+// Plain-English summary of how an item's labels print.
+function labelRuleText(it) {
+  const mode = it?.label_mode || "default";
+  const sold = it?.sold_by || "each";
+  const soldTxt = sold === "lb" ? "Sold by lb" : sold === "person" ? "Sold per person" : "Sold each";
+  const perPiece = mode === "each" || (mode === "default" && sold === "each");
+  return `${soldTxt} · ${perPiece ? "1 label per piece" : "1 label per line"}${mode !== "default" ? " (override)" : ""}`;
+}
+function ItemLabelFields({ value, onChange }) {
+  const sel = { ...inp, flex: 1, minWidth: 150 };
+  return <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 8 }}>
+    <label style={{ flex: 1, minWidth: 150 }}><span style={{ display: "block", fontSize: 11, color: "#666", marginBottom: 3 }}>Sold by</span>
+      <select value={value.sold_by || "each"} onChange={e => onChange({ sold_by: e.target.value })} style={sel}>{SOLD_BY.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></label>
+    <label style={{ flex: 1, minWidth: 150 }}><span style={{ display: "block", fontSize: 11, color: "#666", marginBottom: 3 }}>Labels</span>
+      <select value={value.label_mode || "default"} onChange={e => onChange({ label_mode: e.target.value })} style={sel}>{LABEL_MODES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></label>
+  </div>;
+}
+
 function Admin({ users, refreshUsers, items, refreshItems, user, can, printerIps = {}, setPrinterIps, paperOn = {}, setPaperOn }) {
   const [tab, setTab] = useState("users");
   const isAdmin = can("admin");
@@ -1515,7 +1596,7 @@ function Admin({ users, refreshUsers, items, refreshItems, user, can, printerIps
   const [password, setPassword] = useState("");
   const [role, setRole] = useState("clerk");
   const [locationId, setLocationId] = useState(user.location_id);
-  const [ni, setNi] = useState({ name: "", parent_id: "" });
+  const [ni, setNi] = useState({ name: "", parent_id: "", sold_by: "each", label_mode: "default" });
   const [ue, setUe] = useState("");
   const [ie, setIe] = useState("");
   const [editingUser, setEditingUser] = useState(null);
@@ -1576,22 +1657,28 @@ function Admin({ users, refreshUsers, items, refreshItems, user, can, printerIps
 
   const addI = async () => {
     if (!ni.name.trim()) { setIe("Name required."); return; }
-    await supabase.from("items").insert({
+    const { error } = await supabase.from("items").insert({
       id: `item_${Date.now()}`,
       name: ni.name.trim(),
       active: true,
-      parent_id: ni.parent_id || null
+      parent_id: ni.parent_id || null,
+      sold_by: ni.sold_by || "each",
+      label_mode: ni.label_mode || "default",
     });
+    if (error) { setIe(error.message); return; }
     await refreshItems();
-    setNi({ name: "", parent_id: "" }); setIe("");
+    setNi({ name: "", parent_id: "", sold_by: "each", label_mode: "default" }); setIe("");
   };
 
   const saveEditItem = async () => {
-    await supabase.from("items").update({
+    const { error } = await supabase.from("items").update({
       name: editingItem.name,
       parent_id: editingItem.parent_id || null,
       active: editingItem.active,
+      sold_by: editingItem.sold_by || "each",
+      label_mode: editingItem.label_mode || "default",
     }).eq("id", editingItem.id);
+    if (error) { alert(`Couldn't save item: ${error.message}`); return; }
     await refreshItems();
     setEditingItem(null);
   };
@@ -1718,6 +1805,7 @@ function Admin({ users, refreshUsers, items, refreshItems, user, can, printerIps
               {parentItems.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
             </select>
           </div>
+          <ItemLabelFields value={ni} onChange={ch => setNi(f => ({ ...f, ...ch }))} />
           {ie && <p style={{ color: "#c62828", fontSize: 12, marginBottom: 8 }}>{ie}</p>}
           <button onClick={addI} style={{ fontSize: 12, padding: "7px 14px", background: "#8B1A2B", color: "#fff", border: "none", borderRadius: 7, cursor: "pointer" }}>Add item</button>
         </div>
@@ -1727,6 +1815,7 @@ function Admin({ users, refreshUsers, items, refreshItems, user, can, printerIps
             {editingItem?.id === parent.id ? (
               <div>
                 <input autoComplete="one-time-code" name="nofill" data-lpignore="true" data-1p-ignore="true" value={editingItem.name} onChange={e => setEditingItem(f => ({ ...f, name: e.target.value }))} style={{ ...inp, marginBottom: 8 }} />
+                <ItemLabelFields value={editingItem} onChange={ch => setEditingItem(f => ({ ...f, ...ch }))} />
                 <div style={{ display: "flex", gap: 8 }}>
                   <button onClick={saveEditItem} style={{ fontSize: 12, padding: "6px 14px", background: "#8B1A2B", color: "#fff", border: "none", borderRadius: 7, cursor: "pointer" }}>Save</button>
                   <button onClick={() => setEditingItem(null)} style={{ fontSize: 12, padding: "6px 14px", background: "none", border: "1px solid #ddd", borderRadius: 7, cursor: "pointer" }}>Cancel</button>
@@ -1737,6 +1826,7 @@ function Admin({ users, refreshUsers, items, refreshItems, user, can, printerIps
                 <div>
                   <p style={{ fontSize: 13, fontWeight: children.length > 0 ? 600 : 400, margin: 0 }}>{parent.name}</p>
                   {children.length > 0 && <p style={{ fontSize: 11, color: "#888", margin: "2px 0 0" }}>Shared pool</p>}
+                  <p style={{ fontSize: 11, color: "#999", margin: "2px 0 0" }}>{labelRuleText(parent)}</p>
                 </div>
                 <div style={{ display: "flex", gap: 8 }}>
                   <button onClick={() => setEditingItem({ ...parent })} style={{ fontSize: 12, color: "#8B1A2B", background: "none", border: "none", cursor: "pointer" }}>Edit</button>
@@ -1748,6 +1838,8 @@ function Admin({ users, refreshUsers, items, refreshItems, user, can, printerIps
               {children.map(child => (
                 <div key={child.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "3px 0", opacity: child.active === false ? 0.45 : 1 }}>
                   {editingItem?.id === child.id ? (
+                    <div style={{ flex: 1 }}>
+                    <ItemLabelFields value={editingItem} onChange={ch => setEditingItem(f => ({ ...f, ...ch }))} />
                     <div style={{ display: "flex", gap: 8, flex: 1 }}>
                       <input autoComplete="one-time-code" name="nofill" data-lpignore="true" data-1p-ignore="true" value={editingItem.name} onChange={e => setEditingItem(f => ({ ...f, name: e.target.value }))} style={{ ...inp, flex: 1 }} />
                       <select value={editingItem.parent_id || ""} onChange={e => setEditingItem(f => ({ ...f, parent_id: e.target.value || null }))} style={{ ...inp, flex: 1 }}>
@@ -1757,9 +1849,10 @@ function Admin({ users, refreshUsers, items, refreshItems, user, can, printerIps
                       <button onClick={saveEditItem} style={{ fontSize: 12, padding: "4px 10px", background: "#8B1A2B", color: "#fff", border: "none", borderRadius: 7, cursor: "pointer", whiteSpace: "nowrap" }}>Save</button>
                       <button onClick={() => setEditingItem(null)} style={{ fontSize: 12, padding: "4px 10px", background: "none", border: "1px solid #ddd", borderRadius: 7, cursor: "pointer" }}>Cancel</button>
                     </div>
+                    </div>
                   ) : (
                     <>
-                      <span style={{ fontSize: 12, color: "#555" }}>↳ {child.name}</span>
+                      <span style={{ fontSize: 12, color: "#555" }}>↳ {child.name} <span style={{ fontSize: 10, color: "#aaa" }}>· {labelRuleText(child)}</span></span>
                       <div style={{ display: "flex", gap: 8 }}>
                         <button onClick={() => setEditingItem({ ...child })} style={{ fontSize: 11, color: "#8B1A2B", background: "none", border: "none", cursor: "pointer" }}>Edit</button>
                         <button onClick={() => togI(child.id, child.active)} style={{ fontSize: 11, color: child.active === false ? "#2e7d32" : "#888", background: "none", border: "none", cursor: "pointer" }}>{child.active === false ? "Enable" : "Disable"}</button>
