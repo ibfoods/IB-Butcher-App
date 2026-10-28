@@ -143,6 +143,13 @@ newhydepark@ibfoods.com.
   lb/person -> one label per line ("5 LB"). Qty < 2 or decimal -> always 1 label.
   Migration: `sql/2026-10-28_item_label_settings.sql` (must be run in Supabase SQL editor).
 - Order quantities are still whole numbers only (parseInt in the order form).
+- First real ZPL print (Oct 28, Wantagh test order #1026) confirmed good on paper:
+  `docs/label-photos/2026-10-28-first-zebra-zpl-print.jpg` — reference for future layout tweaks.
+- Only labels go to the Zebra. Reports (Popularity, Production worksheet) print via the browser
+  dialog on letter paper (`@page size: letter`). Chrome remembers the last printer picked in the
+  dialog, so pick the regular printer once per computer.
+- Print-all: single-day views (Today/Tomorrow/picked date) show a bar above the list;
+  Upcoming/All show a "Print all N labels" button on each date header.
 
 ## Printer Architecture — Relay + Named Cloudflare Tunnel (FULLY WORKING as of Aug 27, 2026)
 

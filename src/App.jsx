@@ -281,7 +281,7 @@ function useZebra() {
 
 // One label-print control. Zebra is the default; the print window is the backup.
 // getLabels: () => label payloads. showStatus: manager+ see the setup/status line.
-function LabelPrint({ getLabels, caption = "", showStatus = false, style = {}, onPrinted, all = false }) {
+function LabelPrint({ getLabels = () => [], caption = "", showStatus = false, style = {}, onPrinted, all = false, statusOnly = false }) {
   const zebra = useZebra();
   const [msg, setMsg] = useState(null);   // { ok, text }
   const [busy, setBusy] = useState(false);
@@ -314,14 +314,14 @@ function LabelPrint({ getLabels, caption = "", showStatus = false, style = {}, o
 
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 4, ...style }}>
-      <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+      {!statusOnly && <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
         {count === 0
           ? <button disabled style={{ ...btn, color: "#aaa", borderColor: "#ddd", cursor: "default" }}>🏷 No labels to print{suffix}</button>
           : found
             ? <button onClick={toZebra} disabled={busy} style={{ ...btn, opacity: busy ? 0.6 : 1 }}>🏷 {busy ? "Sending…" : `Print ${all ? "all " : ""}${count} ${noun} to Zebra${suffix}`}</button>
             : <button onClick={toDialog} style={btn}>🏷 Print {all ? "all " : ""}{count} {noun}{suffix}</button>}
         {found && count > 0 && <button onClick={toDialog} style={link}>or use print dialog</button>}
-      </div>
+      </div>}
       {msg && <p style={{ fontSize: 11, margin: 0, color: msg.ok ? "#2e7d32" : "#c62828" }}>{msg.text}</p>}
       {showStatus && zebra.status === "found" && <p style={{ fontSize: 11, color: "#2e7d32", margin: 0 }}>Zebra connected: {zebra.device?.name || "printer"} — labels print silently at exact size.</p>}
       {showStatus && zebra.status === "checking" && <p style={{ fontSize: 11, color: "#888", margin: 0 }}>Looking for Zebra printer…</p>}
@@ -822,7 +822,9 @@ function Orders({ activeLoc, user, orders, orderItemsMap, refresh, inv, refreshI
       </div>
 
       {/* Print all labels for the day — its own bar so it can't be missed */}
-      {!searching && (() => {
+      {!searching && (range === "upcoming" || range === "all") && can("manager") &&
+        <LabelPrint statusOnly showStatus style={{ marginBottom: 8 }} />}
+      {!searching && (range === "today" || range === "tomorrow" || range === "date") && (() => {
         const labelDay = df || today;
         const dayOrders = orders.filter(o => o.pickup_date === labelDay && o.status !== "cancelled" && (!lf || o.location_id === lf)).sort((a, b) => a.daily_number - b.daily_number);
         return <div style={{ background: "#fff", border: "1px solid #e8e8e8", borderRadius: 10, padding: "10px 12px", marginBottom: 12 }}>
@@ -846,7 +848,10 @@ function Orders({ activeLoc, user, orders, orderItemsMap, refresh, inv, refreshI
           const showHeader = groupByDate && (idx === 0 || filtered[idx - 1].pickup_date !== o.pickup_date);
           return (
             <div key={o.id}>
-              {showHeader && <p style={{ fontSize: 11, fontWeight: 600, color: "#8B1A2B", textTransform: "uppercase", letterSpacing: 1, margin: "14px 0 6px" }}>{o.pickup_date === today ? "Today" : o.pickup_date === tomorrow ? "Tomorrow" : fmtDateLongShort(o.pickup_date)}</p>}
+              {showHeader && <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap", margin: "14px 0 6px" }}>
+                <p style={{ fontSize: 11, fontWeight: 600, color: "#8B1A2B", textTransform: "uppercase", letterSpacing: 1, margin: 0 }}>{o.pickup_date === today ? "Today" : o.pickup_date === tomorrow ? "Tomorrow" : fmtDateLongShort(o.pickup_date)}</p>
+                <LabelPrint all getLabels={() => labelsFor(filtered.filter(x => x.pickup_date === o.pickup_date && x.status !== "cancelled").sort((a, b) => a.daily_number - b.daily_number), orderItemsMap, items)} caption={fmtDateLongShort(o.pickup_date)} />
+              </div>}
               <div onClick={() => openDetail(o)} title={itemSummary} style={{ background: "#fff", border: "1px solid #e8e8e8", borderRadius: 8, padding: "8px 12px", marginBottom: 4, cursor: "pointer", display: "flex", alignItems: "center", gap: 10, opacity: o.status === "cancelled" ? 0.55 : 1 }}>
                 <span style={{ fontSize: 16, fontWeight: 700, color: "#8B1A2B", minWidth: 34, textAlign: "center" }}>#{o.daily_number}</span>
                 <span style={{ fontSize: 12, color: "#444", minWidth: 64, fontVariantNumeric: "tabular-nums" }}>{fmtTime(o.pickup_time)}</span>
@@ -1345,7 +1350,7 @@ function Reports({ activeLoc, orders, orderItemsMap, items, user, can }) {
   const printPop = () => {
     const ln = loc ? LOCS.find(l => l.id === loc)?.name : "All Locations";
     const logoUrl = window.location.origin + LOGO_URL;
-    const html = `<!DOCTYPE html><html><head><title>Popularity Report</title><style>
+    const html = `<!DOCTYPE html><html><head><title>Popularity Report</title><style>@page { size: letter; margin: 0.5in; }
       body{font-family:Arial,sans-serif;font-size:12px;padding:20px}
       h2{margin:0 0 3px}p.sub{margin:0 0 12px;color:#666}
       table{width:100%;border-collapse:collapse}
@@ -1370,7 +1375,7 @@ function Reports({ activeLoc, orders, orderItemsMap, items, user, can }) {
   const printProd = () => {
     const ln = loc ? LOCS.find(l => l.id === loc)?.name : "All Locations";
     const logoUrl = window.location.origin + LOGO_URL;
-    const html = `<!DOCTYPE html><html><head><title>Production</title><style>
+    const html = `<!DOCTYPE html><html><head><title>Production</title><style>@page { size: letter; margin: 0.5in; }
       body{font-family:Arial,sans-serif;font-size:12px;padding:20px}
       h2{margin:0 0 3px}p.sub{margin:0 0 12px;color:#666}
       table{width:100%;border-collapse:collapse}
