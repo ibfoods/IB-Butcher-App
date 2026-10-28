@@ -281,7 +281,7 @@ function useZebra() {
 
 // One label-print control. Zebra is the default; the print window is the backup.
 // getLabels: () => label payloads. showStatus: manager+ see the setup/status line.
-function LabelPrint({ getLabels, caption = "", showStatus = false, style = {}, onPrinted }) {
+function LabelPrint({ getLabels, caption = "", showStatus = false, style = {}, onPrinted, all = false }) {
   const zebra = useZebra();
   const [msg, setMsg] = useState(null);   // { ok, text }
   const [busy, setBusy] = useState(false);
@@ -315,10 +315,12 @@ function LabelPrint({ getLabels, caption = "", showStatus = false, style = {}, o
   return (
     <div style={{ display: "flex", flexDirection: "column", gap: 4, ...style }}>
       <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-        {found
-          ? <button onClick={toZebra} disabled={busy} style={{ ...btn, opacity: busy ? 0.6 : 1 }}>🏷 {busy ? "Sending…" : `Print ${count} to Zebra${suffix}`}</button>
-          : <button onClick={toDialog} style={btn}>🏷 Print {count} {noun}{suffix}</button>}
-        {found && <button onClick={toDialog} style={link}>or use print dialog</button>}
+        {count === 0
+          ? <button disabled style={{ ...btn, color: "#aaa", borderColor: "#ddd", cursor: "default" }}>🏷 No labels to print{suffix}</button>
+          : found
+            ? <button onClick={toZebra} disabled={busy} style={{ ...btn, opacity: busy ? 0.6 : 1 }}>🏷 {busy ? "Sending…" : `Print ${all ? "all " : ""}${count} ${noun} to Zebra${suffix}`}</button>
+            : <button onClick={toDialog} style={btn}>🏷 Print {all ? "all " : ""}{count} {noun}{suffix}</button>}
+        {found && count > 0 && <button onClick={toDialog} style={link}>or use print dialog</button>}
       </div>
       {msg && <p style={{ fontSize: 11, margin: 0, color: msg.ok ? "#2e7d32" : "#c62828" }}>{msg.text}</p>}
       {showStatus && zebra.status === "found" && <p style={{ fontSize: 11, color: "#2e7d32", margin: 0 }}>Zebra connected: {zebra.device?.name || "printer"} — labels print silently at exact size.</p>}
@@ -817,12 +819,16 @@ function Orders({ activeLoc, user, orders, orderItemsMap, refresh, inv, refreshI
       <div style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap", alignItems: "center" }}>
         <input autoComplete="one-time-code" name="nofill" data-lpignore="true" data-1p-ignore="true" value={search} onChange={e => setSearch(e.target.value)} placeholder="Search all orders — name, phone, or invoice #" style={{ flex: 1, minWidth: 180, padding: "8px 12px", border: "1px solid #ddd", borderRadius: 8, fontSize: 13 }} />
         {!activeLoc && <select value={lf} onChange={e => setLf(e.target.value)} style={{ minWidth: 130, padding: "7px 10px", border: "1px solid #ddd", borderRadius: 8, fontSize: 13 }}><option value="">All locations</option>{LOCS.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}</select>}
-        {!searching && (() => {
-          const labelDay = df || today;
-          const dayOrders = orders.filter(o => o.pickup_date === labelDay && o.status !== "cancelled" && (!lf || o.location_id === lf)).sort((a, b) => a.daily_number - b.daily_number);
-          return <LabelPrint getLabels={() => labelsFor(dayOrders, orderItemsMap, items)} caption={fmtDateLongShort(labelDay)} showStatus={can("manager")} />;
-        })()}
       </div>
+
+      {/* Print all labels for the day — its own bar so it can't be missed */}
+      {!searching && (() => {
+        const labelDay = df || today;
+        const dayOrders = orders.filter(o => o.pickup_date === labelDay && o.status !== "cancelled" && (!lf || o.location_id === lf)).sort((a, b) => a.daily_number - b.daily_number);
+        return <div style={{ background: "#fff", border: "1px solid #e8e8e8", borderRadius: 10, padding: "10px 12px", marginBottom: 12 }}>
+          <LabelPrint all getLabels={() => labelsFor(dayOrders, orderItemsMap, items)} caption={fmtDateLongShort(labelDay)} showStatus={can("manager")} />
+        </div>;
+      })()}
 
       {/* Summary line */}
       <p style={{ fontSize: 12, color: "#888", margin: "0 0 8px" }}>
@@ -1412,7 +1418,7 @@ function Reports({ activeLoc, orders, orderItemsMap, items, user, can }) {
         {type === "popularity" && <button onClick={printPop} style={{ ...inp, width: "auto", background: "#fff", cursor: "pointer" }}>Print</button>}
         {type === "production" && <>
           <button onClick={printProd} style={{ ...inp, width: "auto", background: "#fff", cursor: "pointer" }}>Print</button>
-          <LabelPrint getLabels={() => labelsFor(prod, orderItemsMap, items)} caption={from === to ? fmtDateLongShort(from) : `${fmtDate(from)} – ${fmtDate(to)}`} showStatus={can("manager")} />
+          <LabelPrint all getLabels={() => labelsFor(prod, orderItemsMap, items)} caption={from === to ? fmtDateLongShort(from) : `${fmtDate(from)} – ${fmtDate(to)}`} showStatus={can("manager")} />
         </>}
       </div>
       {type === "popularity" && <div>
