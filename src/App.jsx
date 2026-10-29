@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { supabase } from "./supabase";
 import { findZebraPrinter, printZpl, buildLabels, zplForLabels } from "./zebraPrint";
+import { Button, Card, Pill, Chip, Toggle, Field, Input, Select, Textarea, PasswordInput, Banner, Loading, Empty, Modal, Icon, MadeBy, cx } from "./ui";
 
 const LOCS = [
   { id: "nhp", name: "New Hyde Park", address: "1538 Union Turnpike, Lake Success Center", city: "New Hyde Park, NY 11040", phone: "(516) 488-5600" },
@@ -11,14 +12,13 @@ const LOCS = [
 ];
 
 const ROLES = { master_admin: "Master Admin", admin: "Admin", manager: "Manager", clerk: "Clerk" };
-const SCOLOR = { pending: { bg: "#fff8e1", txt: "#e65100" }, completed: { bg: "#e8f5e9", txt: "#2e7d32" }, cancelled: { bg: "#ffebee", txt: "#c62828" } };
+const BRAND = "#900027";
 
 const digits = (p) => String(p || "").replace(/\D/g, "");
 // Local-date YYYY-MM-DD (never UTC — the store day rolls at local midnight)
 const ymd = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 const tod = () => ymd(new Date());
 const nowT = () => new Date().toTimeString().slice(0, 5);
-const inp = { width: "100%", boxSizing: "border-box", padding: "7px 10px", border: "1px solid #ddd", borderRadius: 7, fontSize: 13 };
 const LOGO_URL = "/logo.jpg";
 
 function fmtDate(d) {
@@ -51,7 +51,7 @@ function parseTime(raw) {
   return `${String(h).padStart(2, "0")}:${String(min).padStart(2, "0")}`;
 }
 
-function TimeInput({ value, onChange, style }) {
+function TimeInput({ value, onChange }) {
   const [text, setText] = useState(fmtTime(value));
   const [bad, setBad] = useState(false);
   useEffect(() => { setText(fmtTime(value)); setBad(false); }, [value]);
@@ -63,11 +63,10 @@ function TimeInput({ value, onChange, style }) {
   };
   return (
     <div>
-      <input autoComplete="one-time-code" name="nofill" data-lpignore="true" data-1p-ignore="true" value={text} onChange={e => { setText(e.target.value); setBad(false); }} onBlur={commit}
+      <Input value={text} bad={bad} onChange={e => { setText(e.target.value); setBad(false); }} onBlur={commit}
         onKeyDown={e => { if (e.key === "Enter") { e.preventDefault(); commit(); e.target.blur(); } }}
-        onFocus={e => e.target.select()} placeholder="e.g. 1p, 130p, 11:30" inputMode="text"
-        style={{ ...inp, ...(style || {}), borderColor: bad ? "#c62828" : undefined }} />
-      {bad && <p style={{ fontSize: 11, color: "#c62828", margin: "3px 0 0" }}>Try 1p, 1:30 pm, 11:30, or noon</p>}
+        onFocus={e => e.target.select()} placeholder="e.g. 1p, 130p, 11:30" inputMode="text" />
+      {bad && <p className="field-err">Try 1p, 1:30 pm, 11:30, or noon</p>}
     </div>
   );
 }
@@ -100,17 +99,12 @@ function formatPhone(val) {
   return `(${digits.slice(0,3)}) ${digits.slice(3,6)}-${digits.slice(6)}`;
 }
 
-// ── ePOS Receipt Printing ─────────────────────────────────────────────────────
-// Sends directly to the Epson TM-T88VII via ePOS SDK over WiFi.
-// No print dialog, no popup, no drivers needed.
-// The printer IP is set per-location in Admin → Printers.
-// iPad must be on the same WiFi network as the printer.
-
-async function printReceipt(order, orderItems, items, locs, printerIps = {}) {
-  // Routes print jobs through the Vercel relay → Cloudflare Tunnel → local
-  // relay server → printer over TCP 9100 (raw ESC/POS). This sidesteps all
-  // browser security restrictions (mixed content, cert exceptions) that block
-  // direct browser → printer connections, including from home-screen icons.
+// ── Receipt printing ──────────────────────────────────────────────────────────
+// Routes print jobs through the Vercel relay → Cloudflare Tunnel → local
+// relay server → printer over TCP 9100 (raw ESC/POS). This sidesteps all
+// browser security restrictions (mixed content, cert exceptions) that block
+// direct browser → printer connections, including from home-screen icons.
+async function printReceipt(order, orderItems, items, locs) {
   const loc = locs.find(l => l.id === order.location_id);
   try {
     const res = await fetch('/api/print-relay', {
@@ -130,7 +124,6 @@ async function printReceipt(order, orderItems, items, locs, printerIps = {}) {
 // Browser fallback (original popup print)
 function printReceiptBrowser(order, orderItems, items, locs) {
   const loc = locs.find(l => l.id === order.location_id);
-  const logoUrl = window.location.origin + LOGO_URL;
   const takenBy = takenByInitials(order.taken_by);
   const itemLines = orderItems.map(li => {
     const item = items.find(i => i.id === li.item_id);
@@ -141,7 +134,7 @@ function printReceiptBrowser(order, orderItems, items, locs) {
     h2{font-size:17px;text-align:center;letter-spacing:1px;margin:0 0 3px}
     .c{text-align:center}.s{font-size:10px;color:#666;text-align:center}
     .d{border-top:1px dashed #aaa;margin:10px 0}
-    .big{font-size:40px;font-weight:bold;text-align:center;margin:4px 0;color:#8B1A2B}
+    .big{font-size:40px;font-weight:bold;text-align:center;margin:4px 0;color:${BRAND}}
     .lbl{font-size:9px;text-transform:uppercase;letter-spacing:1px;color:#999;margin:8px 0 2px}
     .val{font-size:13px;font-weight:bold;margin:1px 0}
   </style></head><body>
@@ -281,15 +274,13 @@ function useZebra() {
 
 // One label-print control. Zebra is the default; the print window is the backup.
 // getLabels: () => label payloads. showStatus: manager+ see the setup/status line.
-function LabelPrint({ getLabels = () => [], caption = "", showStatus = false, style = {}, onPrinted, all = false, statusOnly = false }) {
+function LabelPrint({ getLabels = () => [], caption = "", showStatus = false, style = {}, onPrinted, all = false, statusOnly = false, full = false }) {
   const zebra = useZebra();
   const [msg, setMsg] = useState(null);   // { ok, text }
   const [busy, setBusy] = useState(false);
   const count = getLabels().length;
   const noun = count === 1 ? "label" : "labels";
   const suffix = caption ? ` — ${caption}` : "";
-  const btn = { whiteSpace: "nowrap", padding: "7px 12px", background: "#fff", color: "#8B1A2B", border: "1px solid #8B1A2B", borderRadius: 8, fontSize: 12, cursor: "pointer" };
-  const link = { background: "none", border: "none", color: "#8B1A2B", fontSize: 11, cursor: "pointer", padding: 0, textDecoration: "underline" };
 
   const toZebra = async () => {
     const labels = getLabels();
@@ -297,7 +288,7 @@ function LabelPrint({ getLabels = () => [], caption = "", showStatus = false, st
     setBusy(true); setMsg(null);
     try {
       await printZpl(zebra.device, zplForLabels(labels));
-      setMsg({ ok: true, text: `Sent ${labels.length} to Zebra ✓` });
+      setMsg({ ok: true, text: `Sent ${labels.length} to Zebra` });
       onPrinted && onPrinted();
     } catch (e) {
       setMsg({ ok: false, text: `Zebra print failed — try the dialog. (${e.message || e})` });
@@ -313,27 +304,23 @@ function LabelPrint({ getLabels = () => [], caption = "", showStatus = false, st
   const found = zebra.status === "found";
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 4, ...style }}>
-      {!statusOnly && <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: 6, ...style }}>
+      {!statusOnly && <div className="hstack">
         {count === 0
-          ? <button disabled style={{ ...btn, color: "#aaa", borderColor: "#ddd", cursor: "default" }}>🏷 No labels to print{suffix}</button>
+          ? <Button variant="outline" icon="tag" disabled full={full}>No labels to print{suffix}</Button>
           : found
-            ? <button onClick={toZebra} disabled={busy} style={{ ...btn, opacity: busy ? 0.6 : 1 }}>🏷 {busy ? "Sending…" : `Print ${all ? "all " : ""}${count} ${noun} to Zebra${suffix}`}</button>
-            : <button onClick={toDialog} style={btn}>🏷 Print {all ? "all " : ""}{count} {noun}{suffix}</button>}
-        {found && count > 0 && <button onClick={toDialog} style={link}>or use print dialog</button>}
+            ? <Button variant="outline" icon="tag" onClick={toZebra} disabled={busy} full={full}>{busy ? "Sending…" : `Print ${all ? "all " : ""}${count} ${noun} to Zebra${suffix}`}</Button>
+            : <Button variant="outline" icon="tag" onClick={toDialog} full={full}>Print {all ? "all " : ""}{count} {noun}{suffix}</Button>}
+        {found && count > 0 && <button type="button" className="btn-link" onClick={toDialog}>or use print dialog</button>}
       </div>}
-      {msg && <p style={{ fontSize: 11, margin: 0, color: msg.ok ? "#2e7d32" : "#c62828" }}>{msg.text}</p>}
-      {showStatus && zebra.status === "found" && <p style={{ fontSize: 11, color: "#2e7d32", margin: 0 }}>Zebra connected: {zebra.device?.name || "printer"} — labels print silently at exact size.</p>}
-      {showStatus && zebra.status === "checking" && <p style={{ fontSize: 11, color: "#888", margin: 0 }}>Looking for Zebra printer…</p>}
-      {showStatus && zebra.status === "none" && <p style={{ fontSize: 11, color: "#888", margin: 0 }}>
-        No Zebra helper found — printing uses the browser dialog. For silent exact-size printing, <a href={ZEBRA_DL} target="_blank" rel="noopener noreferrer" style={{ color: "#8B1A2B" }}>install Zebra Browser Print</a>. <button onClick={() => detectZebra()} style={link}>Check again</button>
+      {msg && <p className={cx("xs", msg.ok ? "ok" : "danger")}>{msg.text}</p>}
+      {showStatus && zebra.status === "found" && <p className="xs ok">Zebra connected: {zebra.device?.name || "printer"} — labels print silently at exact size.</p>}
+      {showStatus && zebra.status === "checking" && <p className="xs muted">Looking for Zebra printer…</p>}
+      {showStatus && zebra.status === "none" && <p className="xs muted">
+        No Zebra helper found — printing uses the browser dialog. For silent exact-size printing, <a href={ZEBRA_DL} target="_blank" rel="noopener noreferrer" className="brand">install Zebra Browser Print</a>. <button type="button" className="btn-link" onClick={() => detectZebra()}>Check again</button>
       </p>}
     </div>
   );
-}
-
-function F({ label, children }) {
-  return <div style={{ marginBottom: 12 }}><p style={{ fontSize: 12, color: "#666", marginBottom: 4 }}>{label}</p>{children}</div>;
 }
 
 function getInvKey(itemId, items, locationId) {
@@ -355,42 +342,54 @@ export default function App() {
   const [paperOn, setPaperOn] = useState({});
   const [activeLoc, setActiveLoc] = useState("");
   const [ready, setReady] = useState(false);
+  const [loadError, setLoadError] = useState("");
 
-  useEffect(() => {
-    (async () => {
-      const { data: u } = await supabase.from("users").select("*");
-      const { data: o } = await supabase.from("orders").select("*");
-      const { data: oi } = await supabase.from("order_items").select("*");
-      const { data: i } = await supabase.from("inventory").select("*");
-      const { data: it } = await supabase.from("items").select("*");
-      const { data: pr } = await supabase.from("printer_settings").select("*");
-      const { data: cu } = await supabase.from("customers").select("*");
-      setCustomers(cu || []);
-      setUsers(u || []);
-      setOrders(o || []);
-      setOrderItems(oi || []);
+  const loadAll = useCallback(async () => {
+    setLoadError("");
+    try {
+      const [u, o, oi, i, it, pr, cu] = await Promise.all([
+        supabase.from("users").select("*"),
+        supabase.from("orders").select("*"),
+        supabase.from("order_items").select("*"),
+        supabase.from("inventory").select("*"),
+        supabase.from("items").select("*"),
+        supabase.from("printer_settings").select("*"),
+        supabase.from("customers").select("*"),
+      ]);
+      const failed = [u, o, oi, i, it, pr, cu].find(r => r.error);
+      if (failed) throw new Error(failed.error.message);
+      setCustomers(cu.data || []);
+      setUsers(u.data || []);
+      setOrders(o.data || []);
+      setOrderItems(oi.data || []);
       const invMap = {};
-      (i || []).forEach(r => { invMap[`${r.location_id}_${r.item_id}`] = r.stock; });
+      (i.data || []).forEach(r => { invMap[`${r.location_id}_${r.item_id}`] = r.stock; });
       setInv(invMap);
-      setItems(it || []);
+      setItems(it.data || []);
       const ipMap = {}; const paperMap = {};
-      (pr || []).forEach(r => { if (r.printer_ip) ipMap[r.location_id] = r.printer_ip; paperMap[r.location_id] = !!r.paper_receipts_enabled; });
+      (pr.data || []).forEach(r => { if (r.printer_ip) ipMap[r.location_id] = r.printer_ip; paperMap[r.location_id] = !!r.paper_receipts_enabled; });
       setPrinterIps(ipMap);
       setPaperOn(paperMap);
       setReady(true);
-
-      // Handle Gmail OAuth redirect
-      const params = new URLSearchParams(window.location.search);
-      if (params.get("gmailConnected")) {
-        window.history.replaceState({}, "", "/");
-        // Will show Gmail tab as connected after login
-      }
-      if (params.get("gmailError")) {
-        window.history.replaceState({}, "", "/");
-        console.error("Gmail OAuth error:", params.get("gmailError"));
-      }
-    })();
+    } catch (e) {
+      console.error("Initial load failed", e);
+      setLoadError(e.message || "Could not reach the database.");
+    }
   }, []);
+
+  useEffect(() => {
+    loadAll();
+    // Handle Gmail OAuth redirect
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("gmailConnected")) {
+      window.history.replaceState({}, "", "/");
+      // Will show Gmail tab as connected after login
+    }
+    if (params.get("gmailError")) {
+      window.history.replaceState({}, "", "/");
+      console.error("Gmail OAuth error:", params.get("gmailError"));
+    }
+  }, [loadAll]);
 
   const refreshOrders = useCallback(async () => {
     const { data: o } = await supabase.from("orders").select("*");
@@ -417,17 +416,23 @@ export default function App() {
   const can = (min) => { const h = ["clerk", "manager", "admin", "master_admin"]; return h.indexOf(user?.role) >= h.indexOf(min); };
   const logout = () => { setUser(null); setView("login"); };
 
-  if (!ready) return <div style={{ padding: "3rem", textAlign: "center", color: "#888" }}>Loading...</div>;
+  if (loadError) return (
+    <div className="shell" style={{ paddingTop: "4rem", maxWidth: 420 }}>
+      <Banner tone="err"><Icon name="alert" /><div><b>Couldn't load the app.</b><br /><span className="xs">{loadError}</span></div></Banner>
+      <Button variant="primary" full icon="refresh" style={{ marginTop: 14 }} onClick={loadAll}>Try again</Button>
+    </div>
+  );
+  if (!ready) return <Loading />;
   if (view === "login") return <Login users={users} onLogin={u => { setUser(u); setActiveLoc(u.location_id); setView("new_order"); }} />;
 
   const loc = activeLoc ? LOCS.find(l => l.id === activeLoc) : null;
 
   return (
-    <div style={{ fontFamily: "system-ui,sans-serif", fontSize: 14, background: "#f5f5f5", minHeight: "100vh" }}>
+    <div style={{ minHeight: "100vh" }}>
       <Nav user={user} loc={loc} activeLoc={activeLoc} setActiveLoc={setActiveLoc} view={view} setView={setView} can={can} onLogout={logout} />
-      <div style={{ maxWidth: 860, margin: "0 auto", padding: "1rem" }}>
-        {view === "orders" && <Orders key={activeLoc} activeLoc={activeLoc} user={user} orders={orders} orderItemsMap={orderItemsMap} refresh={refreshOrders} inv={inv} refreshInv={refreshInv} items={items} can={can} printerIps={printerIps} paperOn={paperOn} />}
-        {view === "new_order" && <NewOrder key={activeLoc} activeLoc={activeLoc} user={user} orders={orders} refresh={refreshOrders} inv={inv} refreshInv={refreshInv} items={items} setView={setView} printerIps={printerIps} paperOn={paperOn} customers={customers} refreshCustomers={refreshCustomers} />}
+      <div className="shell">
+        {view === "orders" && <Orders key={activeLoc} activeLoc={activeLoc} user={user} orders={orders} orderItemsMap={orderItemsMap} refresh={refreshOrders} inv={inv} refreshInv={refreshInv} items={items} can={can} paperOn={paperOn} />}
+        {view === "new_order" && <NewOrder key={activeLoc} activeLoc={activeLoc} user={user} orders={orders} refresh={refreshOrders} inv={inv} refreshInv={refreshInv} items={items} setView={setView} paperOn={paperOn} customers={customers} refreshCustomers={refreshCustomers} />}
         {view === "customers" && <Customers customers={customers} refreshCustomers={refreshCustomers} orders={orders} orderItemsMap={orderItemsMap} items={items} activeLoc={activeLoc} />}
         {view === "reports" && <Reports key={activeLoc} activeLoc={activeLoc} orders={orders} orderItemsMap={orderItemsMap} items={items} user={user} can={can} />}
         {view === "inventory" && can("manager") && <Inventory activeLoc={activeLoc} can={can} inv={inv} refreshInv={refreshInv} items={items} user={user} />}
@@ -475,50 +480,39 @@ function Login({ users, onLogin }) {
     onLogin(u);
   };
 
-  const keyBtn = (label, onClick, extra = {}) => (
-    <button key={label} onClick={onClick} style={{ height: 64, borderRadius: 14, border: "1px solid #e3e3e3", background: "#fff", fontSize: 26, fontWeight: 500, color: "#222", cursor: "pointer", touchAction: "manipulation", ...extra }}>{label}</button>
-  );
-
   return (
-    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", minHeight: "100vh", padding: "2rem", background: "#f5f5f5" }}>
-      <style>{`@keyframes ibshake{0%,100%{transform:translateX(0)}20%,60%{transform:translateX(-8px)}40%,80%{transform:translateX(8px)}}`}</style>
-      <div style={{ width: "100%", maxWidth: 320 }}>
-        <div style={{ textAlign: "center", marginBottom: "1.25rem" }}>
-          <img src="/logo.jpg" alt="Iavarone Bros." style={{ width: 90, height: 90, objectFit: "contain", display: "block", margin: "0 auto 8px" }} />
-          <p style={{ fontSize: 17, fontWeight: 500, margin: 0 }}>Iavarone Bros.</p>
-          <p style={{ color: "#888", fontSize: 12, margin: 0 }}>Butcher Order System</p>
+    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", minHeight: "100vh", padding: "2rem 1rem" }}>
+      <div style={{ width: "100%", maxWidth: 340 }}>
+        <div style={{ textAlign: "center", marginBottom: 20 }}>
+          <img src="/logo.jpg" alt="Iavarone Bros." style={{ width: 92, height: 92, objectFit: "contain", display: "block", margin: "0 auto 8px" }} />
+          <p className="h2">Iavarone Bros.</p>
+          <p className="small muted">Butcher Order System</p>
         </div>
 
         {mode === "pin" ? (
-          <div style={{ background: "#fff", border: "1px solid #e8e8e8", borderRadius: 14, padding: 20 }}>
-            <p style={{ fontSize: 12, color: "#666", textAlign: "center", margin: "0 0 14px", textTransform: "uppercase", letterSpacing: 1 }}>Enter your PIN</p>
-            <div style={{ display: "flex", justifyContent: "center", gap: 16, marginBottom: 6, animation: shake ? "ibshake .4s" : "none" }}>
-              {[0, 1, 2, 3].map(i => <span key={i} style={{ width: 16, height: 16, borderRadius: "50%", border: "2px solid #8B1A2B", background: i < pin.length ? "#8B1A2B" : "transparent", transition: "background .1s" }} />)}
+          <Card style={{ padding: 22, borderRadius: 16 }}>
+            <p className="eyebrow" style={{ textAlign: "center", marginBottom: 16 }}>Enter your PIN</p>
+            <div className={cx(shake && "shake")} style={{ display: "flex", justifyContent: "center", gap: 18, marginBottom: 8 }}>
+              {[0, 1, 2, 3].map(i => <span key={i} style={{ width: 16, height: 16, borderRadius: "50%", border: `2px solid ${BRAND}`, background: i < pin.length ? BRAND : "transparent", transition: "background .1s" }} />)}
             </div>
-            <p style={{ fontSize: 12, color: "#c62828", textAlign: "center", minHeight: 16, margin: "0 0 10px" }}>{err}</p>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 10 }}>
-              {["1","2","3","4","5","6","7","8","9"].map(d => keyBtn(d, () => press(d)))}
-              {keyBtn("", null, { visibility: "hidden" })}
-              {keyBtn("0", () => press("0"))}
-              {keyBtn("⌫", back, { fontSize: 20, color: "#888" })}
+            <p className="xs danger" style={{ textAlign: "center", minHeight: 18, marginBottom: 10 }}>{err}</p>
+            <div className="keypad">
+              {["1","2","3","4","5","6","7","8","9"].map(d => <button key={d} type="button" className="key" onClick={() => press(d)}>{d}</button>)}
+              <span />
+              <button type="button" className="key" onClick={() => press("0")}>0</button>
+              <button type="button" className="key dim" onClick={back} aria-label="Backspace">⌫</button>
             </div>
-            <button onClick={() => { setMode("pw"); setErr(""); setPin(""); }} style={{ display: "block", width: "100%", marginTop: 16, background: "none", border: "none", color: "#8B1A2B", fontSize: 12, cursor: "pointer" }}>Sign in with password</button>
-          </div>
+            <Button variant="ghost" full style={{ marginTop: 14 }} onClick={() => { setMode("pw"); setErr(""); setPin(""); }}>Sign in with password</Button>
+          </Card>
         ) : (
-          <div style={{ background: "#fff", border: "1px solid #e8e8e8", borderRadius: 14, padding: 20 }}>
-            <div style={{ marginBottom: 10 }}>
-              <p style={{ fontSize: 12, color: "#666", marginBottom: 4 }}>Username</p>
-              <input autoComplete="one-time-code" name="nofill" data-lpignore="true" data-1p-ignore="true" value={username} onChange={e => setUsername(e.target.value)} onKeyDown={e => e.key === "Enter" && goPw()} placeholder="Username" autoCapitalize="none" style={{ ...inp, fontSize: 16 }} />
-            </div>
-            <div style={{ marginBottom: 14 }}>
-              <p style={{ fontSize: 12, color: "#666", marginBottom: 4 }}>Password</p>
-              <input autoComplete="new-password" type="password" value={password} onChange={e => setPassword(e.target.value)} onKeyDown={e => e.key === "Enter" && goPw()} placeholder="Password" style={{ ...inp, fontSize: 16 }} />
-            </div>
-            {err && <p style={{ color: "#c62828", fontSize: 12, marginBottom: 10 }}>{err}</p>}
-            <button onClick={goPw} style={{ width: "100%", background: "#8B1A2B", color: "#fff", border: "none", borderRadius: 8, padding: 10, fontSize: 14, fontWeight: 500, cursor: "pointer" }}>Sign in</button>
-            <button onClick={() => { setMode("pin"); setErr(""); }} style={{ display: "block", width: "100%", marginTop: 12, background: "none", border: "none", color: "#8B1A2B", fontSize: 12, cursor: "pointer" }}>← Use PIN instead</button>
-          </div>
+          <Card style={{ padding: 22, borderRadius: 16 }}>
+            <Field label="Username"><Input value={username} onChange={e => setUsername(e.target.value)} onKeyDown={e => e.key === "Enter" && goPw()} placeholder="Username" autoCapitalize="none" /></Field>
+            <Field label="Password" error={err}><PasswordInput value={password} onChange={e => setPassword(e.target.value)} onKeyDown={e => e.key === "Enter" && goPw()} placeholder="Password" /></Field>
+            <Button variant="primary" full onClick={goPw}>Sign in</Button>
+            <Button variant="ghost" full style={{ marginTop: 10 }} icon="back" onClick={() => { setMode("pin"); setErr(""); }}>Use PIN instead</Button>
+          </Card>
         )}
+        <div style={{ marginTop: 28 }}><MadeBy /></div>
       </div>
     </div>
   );
@@ -537,39 +531,37 @@ function Nav({ user, loc, activeLoc, setActiveLoc, view, setView, can, onLogout 
     ...(can("manager") ? [{ id: "admin", label: can("admin") ? "Admin" : "Users" }] : []),
   ];
   return (
-    <div style={{ background: awayFromHome ? "#fff4e0" : "#fff", borderBottom: awayFromHome ? "2px solid #e65100" : "1px solid #eee", padding: "10px 1rem 0", transition: "background .15s" }}>
-      <div style={{ maxWidth: 860, margin: "0 auto" }}>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8, gap: 10 }}>
+    <div className={cx("nav", awayFromHome && "away")}>
+      <div className="nav-inner">
+        <div className="nav-top">
           <div style={{ display: "flex", alignItems: "center", gap: 10, minWidth: 0 }}>
-            <div style={{ width: 32, height: 32, borderRadius: "50%", background: "#8B1A2B", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, color: "#fff", flexShrink: 0 }}>IB</div>
+            <div className="monogram">IB</div>
             <div style={{ minWidth: 0 }}>
               {canSwitch ? (
-                <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                  <select value={activeLoc} onChange={e => setActiveLoc(e.target.value)} style={{ fontSize: 14, fontWeight: 600, padding: "4px 8px", border: `1px solid ${awayFromHome ? "#e65100" : "#ddd"}`, borderRadius: 7, background: "#fff", color: awayFromHome ? "#e65100" : "#222" }}>
+                <div className="hstack">
+                  <Select inline value={activeLoc} onChange={e => setActiveLoc(e.target.value)} style={{ minHeight: 38, padding: "6px 34px 6px 10px", fontSize: 15, fontWeight: 600, borderColor: awayFromHome ? "var(--warn)" : undefined, color: awayFromHome ? "var(--warn)" : undefined }}>
                     {LOCS.map(l => <option key={l.id} value={l.id}>{l.name}{l.id === user.location_id ? " (home)" : ""}</option>)}
                     {can("admin") && <option value="">All stores</option>}
-                  </select>
-                  {awayFromHome && <span style={{ fontSize: 11, fontWeight: 600, color: "#e65100" }}>⚠ Not your home store ({homeLoc?.name})</span>}
+                  </Select>
+                  {awayFromHome && <span className="xs warn" style={{ fontWeight: 600 }}>Not your home store ({homeLoc?.name})</span>}
                 </div>
               ) : (
-                <p style={{ fontSize: 14, fontWeight: 600, margin: 0 }}>{loc?.name}</p>
+                <p className="h2">{loc?.name}</p>
               )}
-              <p style={{ fontSize: 11, color: "#888", margin: 0 }}>{user.name} · {ROLES[user.role]}</p>
+              <p className="xs muted">{user.name} · {ROLES[user.role]}</p>
             </div>
           </div>
-          <button onClick={onLogout} style={{ fontSize: 12, color: "#888", background: "none", border: "1px solid #ddd", borderRadius: 7, padding: "5px 10px", cursor: "pointer" }}>Sign out</button>
+          <Button variant="secondary" size="sm" onClick={onLogout}>Sign out</Button>
         </div>
-        <div style={{ display: "flex", gap: 2 }}>
-          {tabs.map(t => (
-            <button key={t.id} onClick={() => setView(t.id)} style={{ fontSize: 12, padding: "7px 12px", background: "none", border: "none", borderBottom: view === t.id ? "2px solid #8B1A2B" : "2px solid transparent", color: view === t.id ? "#8B1A2B" : "#888", fontWeight: view === t.id ? 500 : 400, cursor: "pointer", whiteSpace: "nowrap" }}>{t.label}</button>
-          ))}
+        <div className="nav-tabs">
+          {tabs.map(t => <button key={t.id} type="button" className={cx("tab", view === t.id && "on")} onClick={() => setView(t.id)}>{t.label}</button>)}
         </div>
       </div>
     </div>
   );
 }
 
-function Orders({ activeLoc, user, orders, orderItemsMap, refresh, inv, refreshInv, items, can, printerIps = {}, paperOn = {} }) {
+function Orders({ activeLoc, user, orders, orderItemsMap, refresh, inv, refreshInv, items, can, paperOn = {} }) {
   const [search, setSearch] = useState("");
   const [lf, setLf] = useState(activeLoc || "");
   const [range, setRange] = useState("today");   // today | tomorrow | upcoming | all | date
@@ -605,6 +597,7 @@ function Orders({ activeLoc, user, orders, orderItemsMap, refresh, inv, refreshI
   const statusCounts = filtered.reduce((m, o) => { m[o.status] = (m[o.status] || 0) + 1; return m; }, {});
 
   const openDetail = (o) => { setDetail(o); setEditing(false); setEditForm(null); setDetailEmail(o.customer_email || ""); setDetailEmailStatus(""); };
+  const closeDetail = () => { setDetail(null); setEditing(false); };
 
   const startEdit = (o) => {
     const nameParts = o.customer_name.split(" ");
@@ -674,151 +667,136 @@ function Orders({ activeLoc, user, orders, orderItemsMap, refresh, inv, refreshI
     setDetail(null);
   };
 
+  const sendDetailEmail = async () => {
+    if (!detailEmail || !detailEmail.includes("@")) { setDetailEmailStatus("error_addr"); return; }
+    setDetailEmailSending(true); setDetailEmailStatus("");
+    const loc = LOCS.find(l => l.id === detail.location_id);
+    try {
+      const res = await fetch("/api/send-receipt", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ to: detailEmail, locationId: detail.location_id, order: detail, orderItems: orderItemsMap[detail.id] || [], items, loc }),
+      });
+      setDetailEmailStatus(res.ok ? "sent" : "error");
+    } catch { setDetailEmailStatus("error"); }
+    setDetailEmailSending(false);
+  };
+
   return (
     <div>
       {detail && (
-        <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "rgba(0,0,0,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 999, padding: "1rem" }}>
-          <div style={{ background: "#fff", borderRadius: 10, padding: 20, maxWidth: 440, width: "100%", border: "1px solid #e8e8e8", maxHeight: "90vh", overflowY: "auto" }}>
-            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 12 }}>
-              <p style={{ fontWeight: 500 }}>Order #{detail.invoice_number}</p>
-              <button onClick={() => { setDetail(null); setEditing(false); }} style={{ background: "none", border: "none", fontSize: 20, color: "#888", cursor: "pointer" }}>×</button>
-            </div>
-            {!editing ? (
-              <>
-                <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
-                  <tbody>
-                    {[
-                      ["Customer", detail.customer_name],
-                      ["Phone", detail.customer_phone],
-                      ...(detail.customer_email ? [["Email", detail.customer_email]] : []),
-                      ["Pickup", `${fmtDate(detail.pickup_date)} at ${fmtTime(detail.pickup_time)}`],
-                      ["Invoice", `#${detail.invoice_number}`],
-                      ["Location", LOCS.find(l => l.id === detail.location_id)?.name],
-                      ["Order placed", `${fmtDate(detail.order_date)} at ${fmtTime(detail.order_time)}`],
-                      ["Daily #", `#${detail.daily_number}`],
-                      ["Taken by", detail.taken_by],
-                      ["Status", detail.status],
-                      ...(detail.notes ? [["Notes", detail.notes]] : [])
-                    ].map(([k, v]) => (
-                      <tr key={k}><td style={{ color: "#888", width: "35%", fontSize: 12, padding: "5px 0" }}>{k}</td><td style={{ padding: "5px 0" }}>{v}</td></tr>
-                    ))}
-                  </tbody>
-                </table>
-                <div style={{ marginTop: 10, borderTop: "0.5px solid #eee", paddingTop: 10 }}>
-                  <p style={{ fontSize: 11, color: "#888", textTransform: "uppercase", letterSpacing: 1, marginBottom: 6 }}>Items</p>
-                  {(orderItemsMap[detail.id] || []).map((li, i) => {
-                    const item = items.find(x => x.id === li.item_id);
-                    return <div key={i} style={{ display: "flex", justifyContent: "space-between", fontSize: 13, padding: "3px 0", borderBottom: "1px dotted #eee" }}>
-                      <span>{item?.name}</span>
-                      <span style={{ color: "#888" }}>x{li.quantity}</span>
-                    </div>;
-                  })}
+        <Modal title={`Order #${detail.invoice_number}`} onClose={closeDetail}>
+          {!editing ? (
+            <>
+              <table className="tbl kv" style={{ width: "100%", borderCollapse: "collapse" }}>
+                <tbody>
+                  {[
+                    ["Customer", detail.customer_name],
+                    ["Phone", detail.customer_phone],
+                    ...(detail.customer_email ? [["Email", detail.customer_email]] : []),
+                    ["Pickup", `${fmtDate(detail.pickup_date)} at ${fmtTime(detail.pickup_time)}`],
+                    ["Invoice", `#${detail.invoice_number}`],
+                    ["Location", LOCS.find(l => l.id === detail.location_id)?.name],
+                    ["Order placed", `${fmtDate(detail.order_date)} at ${fmtTime(detail.order_time)}`],
+                    ["Daily #", `#${detail.daily_number}`],
+                    ["Taken by", detail.taken_by],
+                    ["Status", detail.status],
+                    ...(detail.notes ? [["Notes", detail.notes]] : [])
+                  ].map(([k, v]) => (
+                    <tr key={k}><td>{k}</td><td>{v}</td></tr>
+                  ))}
+                </tbody>
+              </table>
+              <div className="divider" />
+              <p className="eyebrow" style={{ marginBottom: 6 }}>Items</p>
+              {(orderItemsMap[detail.id] || []).map((li, i) => {
+                const item = items.find(x => x.id === li.item_id);
+                return <div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: "1px dotted var(--line)" }}>
+                  <span>{item?.name}</span>
+                  <span className="muted">x{li.quantity}</span>
+                </div>;
+              })}
+              <div className="stack" style={{ marginTop: 14 }}>
+                <div className="hstack" style={{ flexWrap: "nowrap" }}>
+                  <Button style={{ flex: 1 }} onClick={() => startEdit(detail)}>Edit</Button>
+                  {paperOn[detail.location_id] && <Button style={{ flex: 1 }} icon="printer" onClick={() => { setDetail(null); setTimeout(() => printReceipt(detail, orderItemsMap[detail.id] || [], items, LOCS), 200); }}>Print receipt</Button>}
                 </div>
-                <div style={{ display: "flex", gap: 8, marginTop: 12, flexWrap: "wrap" }}>
-                  <button onClick={() => startEdit(detail)} style={{ flex: 1, background: "#fff", color: "#555", border: "1px solid #ddd", borderRadius: 8, padding: 9, fontSize: 13, cursor: "pointer" }}>Edit</button>
-                  {paperOn[detail.location_id] && <button onClick={() => { setDetail(null); setTimeout(() => printReceipt(detail, orderItemsMap[detail.id] || [], items, LOCS, printerIps), 200); }} style={{ flex: 1, background: "#fff", color: "#555", border: "1px solid #ddd", borderRadius: 8, padding: 9, fontSize: 13, cursor: "pointer" }}>Print receipt</button>}
-                  <LabelPrint getLabels={() => labelsFor([detail], { [detail.id]: orderItemsMap[detail.id] || [] }, items)} showStatus={can("manager")} style={{ flex: "1 1 100%" }} />
-                </div>
-                {/* Email receipt */}
-                <div style={{ border: "1px solid #e8e8e8", borderRadius: 8, padding: "10px 12px", marginTop: 8 }}>
-                  <p style={{ fontSize: 12, color: "#666", margin: "0 0 6px" }}>📧 Email receipt</p>
+                <LabelPrint full getLabels={() => labelsFor([detail], { [detail.id]: orderItemsMap[detail.id] || [] }, items)} showStatus={can("manager")} />
+                <Card tight>
+                  <p className="small muted" style={{ marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}><Icon name="mail" size={16} />Email receipt</p>
                   <div style={{ display: "flex", gap: 8 }}>
-                    <input autoComplete="one-time-code" name="nofill" data-lpignore="true" data-1p-ignore="true"
-                      type="email"
-                      value={detailEmail}
-                      onChange={e => { setDetailEmail(e.target.value); setDetailEmailStatus(""); }}
-                      placeholder="customer@email.com"
-                      style={{ ...inp, flex: 1 }}
-                    />
-                    <button
-                      onClick={async () => {
-                        if (!detailEmail || !detailEmail.includes("@")) { setDetailEmailStatus("error_addr"); return; }
-                        setDetailEmailSending(true); setDetailEmailStatus("");
-                        const loc = LOCS.find(l => l.id === detail.location_id);
-                        try {
-                          const res = await fetch("/api/send-receipt", {
-                            method: "POST",
-                            headers: { "Content-Type": "application/json" },
-                            body: JSON.stringify({ to: detailEmail, locationId: detail.location_id, order: detail, orderItems: orderItemsMap[detail.id] || [], items, loc }),
-                          });
-                          setDetailEmailStatus(res.ok ? "sent" : "error");
-                        } catch { setDetailEmailStatus("error"); }
-                        setDetailEmailSending(false);
-                      }}
-                      disabled={detailEmailSending}
-                      style={{ padding: "7px 14px", background: "#8B1A2B", color: "#fff", border: "none", borderRadius: 7, fontSize: 13, cursor: detailEmailSending ? "default" : "pointer", opacity: detailEmailSending ? 0.7 : 1, whiteSpace: "nowrap" }}
-                    >
-                      {detailEmailSending ? "Sending…" : "Send"}
-                    </button>
+                    <Input type="email" value={detailEmail} onChange={e => { setDetailEmail(e.target.value); setDetailEmailStatus(""); }} placeholder="customer@email.com" style={{ flex: 1 }} />
+                    <Button variant="primary" onClick={sendDetailEmail} disabled={detailEmailSending}>{detailEmailSending ? "Sending…" : "Send"}</Button>
                   </div>
-                  {detailEmailStatus === "sent" && <p style={{ fontSize: 12, color: "#2e7d32", margin: "5px 0 0" }}>✓ Receipt sent to {detailEmail}</p>}
-                  {detailEmailStatus === "error" && <p style={{ fontSize: 12, color: "#c62828", margin: "5px 0 0" }}>Failed to send. Check Vercel logs.</p>}
-                  {detailEmailStatus === "error_addr" && <p style={{ fontSize: 12, color: "#c62828", margin: "5px 0 0" }}>Please enter a valid email address.</p>}
-                </div>
+                  {detailEmailStatus === "sent" && <p className="xs ok" style={{ marginTop: 6 }}>Receipt sent to {detailEmail}</p>}
+                  {detailEmailStatus === "error" && <p className="xs danger" style={{ marginTop: 6 }}>Failed to send. Check Vercel logs.</p>}
+                  {detailEmailStatus === "error_addr" && <p className="xs danger" style={{ marginTop: 6 }}>Please enter a valid email address.</p>}
+                </Card>
                 {detail.status === "pending" && (
-                  <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
-                    <button onClick={() => complete(detail.id)} style={{ flex: 1, background: "#e8f5e9", color: "#2e7d32", border: "none", borderRadius: 8, padding: 9, fontSize: 13, cursor: "pointer" }}>Mark complete</button>
-                    <button onClick={() => cancel(detail.id)} style={{ flex: 1, background: "#ffebee", color: "#c62828", border: "none", borderRadius: 8, padding: 9, fontSize: 13, cursor: "pointer" }}>Cancel order</button>
+                  <div className="hstack" style={{ flexWrap: "nowrap" }}>
+                    <Button variant="ok-soft" style={{ flex: 1 }} onClick={() => complete(detail.id)}>Mark complete</Button>
+                    <Button variant="danger-soft" style={{ flex: 1 }} onClick={() => cancel(detail.id)}>Cancel order</Button>
                   </div>
                 )}
                 {can("manager") && (
-                  <div style={{ marginTop: 8, paddingTop: 8, borderTop: "1px dashed #eee" }}>
-                    <button onClick={() => deleteOrder(detail.id)} style={{ width: "100%", background: "none", color: "#c62828", border: "1px solid #c62828", borderRadius: 8, padding: 9, fontSize: 13, cursor: "pointer" }}>🗑 Delete order (managers only)</button>
+                  <div style={{ paddingTop: 10, borderTop: "1px dashed var(--line)" }}>
+                    <Button variant="danger" full icon="trash" onClick={() => deleteOrder(detail.id)}>Delete order (managers only)</Button>
                   </div>
                 )}
-              </>
-            ) : (
-              <>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>
-                  <div><p style={{ fontSize: 12, color: "#666", marginBottom: 4 }}>First name</p><input autoComplete="one-time-code" name="nofill" data-lpignore="true" data-1p-ignore="true" value={editForm.firstName} onChange={e => setEditForm(f => ({ ...f, firstName: e.target.value }))} style={inp} /></div>
-                  <div><p style={{ fontSize: 12, color: "#666", marginBottom: 4 }}>Last name</p><input autoComplete="one-time-code" name="nofill" data-lpignore="true" data-1p-ignore="true" value={editForm.lastName} onChange={e => setEditForm(f => ({ ...f, lastName: e.target.value }))} style={inp} /></div>
-                </div>
-                <div style={{ marginBottom: 10 }}><p style={{ fontSize: 12, color: "#666", marginBottom: 4 }}>Phone</p><input autoComplete="one-time-code" name="nofill" data-lpignore="true" data-1p-ignore="true" value={editForm.customer_phone} onChange={e => setEditForm(f => ({ ...f, customer_phone: formatPhone(e.target.value) }))} style={inp} /></div>
-                <div style={{ marginBottom: 10 }}><p style={{ fontSize: 12, color: "#666", marginBottom: 4 }}>Email (optional)</p><input autoComplete="one-time-code" name="nofill" data-lpignore="true" data-1p-ignore="true" type="email" value={editForm.customer_email || ""} onChange={e => setEditForm(f => ({ ...f, customer_email: e.target.value }))} placeholder="customer@email.com" style={inp} /></div>
-                {can("manager") && <div style={{ marginBottom: 10 }}><p style={{ fontSize: 12, color: "#666", marginBottom: 4 }}>Location</p><select value={editForm.location_id} onChange={e => setEditForm(f => ({ ...f, location_id: e.target.value }))} style={inp}>{LOCS.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}</select></div>}
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10, marginBottom: 10 }}>
-                  <div><p style={{ fontSize: 12, color: "#666", marginBottom: 4 }}>Pickup date</p><input autoComplete="one-time-code" name="nofill" data-lpignore="true" data-1p-ignore="true" type="date" value={editForm.pickup_date} onChange={e => setEditForm(f => ({ ...f, pickup_date: e.target.value }))} style={inp} /></div>
-                  <div><p style={{ fontSize: 12, color: "#666", marginBottom: 4 }}>Pickup time</p><TimeInput value={editForm.pickup_time} onChange={v => setEditForm(f => ({ ...f, pickup_time: v }))} /></div>
-                </div>
-                <div style={{ marginBottom: 10 }}>
-                  <p style={{ fontSize: 12, color: "#666", marginBottom: 6 }}>Items</p>
+              </div>
+            </>
+          ) : (
+            <>
+              <div className="grid2">
+                <Field label="First name"><Input value={editForm.firstName} onChange={e => setEditForm(f => ({ ...f, firstName: e.target.value }))} /></Field>
+                <Field label="Last name"><Input value={editForm.lastName} onChange={e => setEditForm(f => ({ ...f, lastName: e.target.value }))} /></Field>
+              </div>
+              <Field label="Phone"><Input value={editForm.customer_phone} inputMode="tel" onChange={e => setEditForm(f => ({ ...f, customer_phone: formatPhone(e.target.value) }))} /></Field>
+              <Field label="Email (optional)"><Input type="email" value={editForm.customer_email || ""} onChange={e => setEditForm(f => ({ ...f, customer_email: e.target.value }))} placeholder="customer@email.com" /></Field>
+              {can("manager") && <Field label="Location"><Select value={editForm.location_id} onChange={e => setEditForm(f => ({ ...f, location_id: e.target.value }))}>{LOCS.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}</Select></Field>}
+              <div className="grid2">
+                <Field label="Pickup date"><Input type="date" value={editForm.pickup_date} onChange={e => setEditForm(f => ({ ...f, pickup_date: e.target.value }))} /></Field>
+                <Field label="Pickup time"><TimeInput value={editForm.pickup_time} onChange={v => setEditForm(f => ({ ...f, pickup_time: v }))} /></Field>
+              </div>
+              <Field label="Items">
+                <div className="stack">
                   {editForm.lineItems.map((li, i) => (
-                    <div key={i} style={{ display: "flex", gap: 8, marginBottom: 6, alignItems: "center" }}>
-                      <select value={li.item_id} onChange={e => setEditForm(f => ({ ...f, lineItems: f.lineItems.map((x, idx) => idx === i ? { ...x, item_id: e.target.value } : x) }))} style={{ ...inp, flex: 3 }}>
+                    <div key={i} style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                      <Select value={li.item_id} onChange={e => setEditForm(f => ({ ...f, lineItems: f.lineItems.map((x, idx) => idx === i ? { ...x, item_id: e.target.value } : x) }))} style={{ flex: 3 }}>
                         {items.filter(x => x.active !== false).map(x => <option key={x.id} value={x.id}>{x.name}</option>)}
-                      </select>
-                      <input autoComplete="one-time-code" name="nofill" data-lpignore="true" data-1p-ignore="true" type="number" min={1} value={li.quantity} onChange={e => setEditForm(f => ({ ...f, lineItems: f.lineItems.map((x, idx) => idx === i ? { ...x, quantity: e.target.value } : x) }))} style={{ ...inp, width: 60, flex: "none" }} />
-                      {editForm.lineItems.length > 1 && <button onClick={() => setEditForm(f => ({ ...f, lineItems: f.lineItems.filter((_, idx) => idx !== i) }))} style={{ background: "none", border: "none", color: "#c62828", fontSize: 18, cursor: "pointer", padding: "0 4px" }}>×</button>}
+                      </Select>
+                      <Input type="number" min={1} value={li.quantity} onChange={e => setEditForm(f => ({ ...f, lineItems: f.lineItems.map((x, idx) => idx === i ? { ...x, quantity: e.target.value } : x) }))} style={{ width: 72, flex: "none" }} />
+                      {editForm.lineItems.length > 1 && <button type="button" className="close" style={{ margin: 0 }} onClick={() => setEditForm(f => ({ ...f, lineItems: f.lineItems.filter((_, idx) => idx !== i) }))} aria-label="Remove">×</button>}
                     </div>
                   ))}
-                  <button onClick={() => setEditForm(f => ({ ...f, lineItems: [...f.lineItems, { item_id: items.filter(x => x.active !== false)[0]?.id || "", quantity: 1 }] }))} style={{ fontSize: 12, color: "#8B1A2B", background: "none", border: "1px solid #8B1A2B", borderRadius: 7, padding: "5px 12px", cursor: "pointer" }}>+ Add item</button>
+                  <div><Button variant="outline" size="sm" icon="plus" onClick={() => setEditForm(f => ({ ...f, lineItems: [...f.lineItems, { item_id: items.filter(x => x.active !== false)[0]?.id || "", quantity: 1 }] }))}>Add item</Button></div>
                 </div>
-                <div style={{ marginBottom: 12 }}><p style={{ fontSize: 12, color: "#666", marginBottom: 4 }}>Notes</p><textarea autoComplete="one-time-code" name="nofill" data-lpignore="true" data-1p-ignore="true" value={editForm.notes} onChange={e => setEditForm(f => ({ ...f, notes: e.target.value }))} style={{ ...inp, height: 58, resize: "vertical" }} /></div>
-                <div style={{ display: "flex", gap: 8 }}>
-                  <button onClick={saveEdit} style={{ flex: 1, background: "#8B1A2B", color: "#fff", border: "none", borderRadius: 8, padding: 9, fontSize: 13, cursor: "pointer" }}>Save changes</button>
-                  <button onClick={() => setEditing(false)} style={{ flex: 1, background: "#fff", color: "#555", border: "1px solid #ddd", borderRadius: 8, padding: 9, fontSize: 13, cursor: "pointer" }}>Cancel</button>
-                </div>
-              </>
-            )}
-          </div>
-        </div>
+              </Field>
+              <Field label="Notes"><Textarea value={editForm.notes} onChange={e => setEditForm(f => ({ ...f, notes: e.target.value }))} /></Field>
+              <div className="hstack" style={{ flexWrap: "nowrap" }}>
+                <Button variant="primary" style={{ flex: 1 }} onClick={saveEdit}>Save changes</Button>
+                <Button style={{ flex: 1 }} onClick={() => setEditing(false)}>Cancel</Button>
+              </div>
+            </>
+          )}
+        </Modal>
       )}
 
       {/* Range pills + search */}
-      <div style={{ display: "flex", gap: 6, marginBottom: 10, flexWrap: "wrap", alignItems: "center" }}>
+      <div className="pills" style={{ marginBottom: 10 }}>
         {[["today", "Today"], ["tomorrow", "Tomorrow"], ["upcoming", "Upcoming"], ["all", "All"]].map(([r, lbl]) => (
-          <button key={r} onClick={() => { setSearch(""); pickRange(r); }} style={{ padding: "6px 13px", borderRadius: 20, border: "1px solid", borderColor: range === r && !searching ? "#8B1A2B" : "#ddd", background: range === r && !searching ? "#8B1A2B" : "#fff", color: range === r && !searching ? "#fff" : "#444", fontSize: 12, fontWeight: 500, cursor: "pointer" }}>{lbl}</button>
+          <Pill key={r} on={range === r && !searching} onClick={() => { setSearch(""); pickRange(r); }}>{lbl}</Pill>
         ))}
-        <input autoComplete="one-time-code" name="nofill" data-lpignore="true" data-1p-ignore="true" type="date" value={df} onChange={e => { setSearch(""); pickDate(e.target.value); }} style={{ padding: "5px 8px", border: "1px solid #ddd", borderRadius: 20, fontSize: 12, color: range === "date" ? "#8B1A2B" : "#666" }} />
+        <Input type="date" inline value={df} onChange={e => { setSearch(""); pickDate(e.target.value); }} style={{ minHeight: 40, padding: "6px 10px", borderRadius: 20, fontSize: 14, color: range === "date" ? "var(--brand)" : "var(--muted)" }} />
         <div style={{ flex: 1 }} />
-        <label style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 11, color: "#888", cursor: "pointer", whiteSpace: "nowrap" }}>
-          <input autoComplete="one-time-code" name="nofill" data-lpignore="true" data-1p-ignore="true" type="checkbox" checked={showCancelled} onChange={e => setShowCancelled(e.target.checked)} />
+        <label className="hstack small muted" style={{ cursor: "pointer", minHeight: 40 }}>
+          <input type="checkbox" checked={showCancelled} onChange={e => setShowCancelled(e.target.checked)} />
           Cancelled
         </label>
       </div>
-      <div style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap", alignItems: "center" }}>
-        <input autoComplete="one-time-code" name="nofill" data-lpignore="true" data-1p-ignore="true" value={search} onChange={e => setSearch(e.target.value)} placeholder="Search all orders — name, phone, or invoice #" style={{ flex: 1, minWidth: 180, padding: "8px 12px", border: "1px solid #ddd", borderRadius: 8, fontSize: 13 }} />
-        {!activeLoc && <select value={lf} onChange={e => setLf(e.target.value)} style={{ minWidth: 130, padding: "7px 10px", border: "1px solid #ddd", borderRadius: 8, fontSize: 13 }}><option value="">All locations</option>{LOCS.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}</select>}
+      <div className="hstack" style={{ marginBottom: 12 }}>
+        <Input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search all orders — name, phone, or invoice #" style={{ flex: 1, minWidth: 200 }} />
+        {!activeLoc && <Select inline value={lf} onChange={e => setLf(e.target.value)} style={{ minWidth: 160 }}><option value="">All locations</option>{LOCS.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}</Select>}
       </div>
 
       {/* Print all labels for the day — its own bar so it can't be missed */}
@@ -827,37 +805,36 @@ function Orders({ activeLoc, user, orders, orderItemsMap, refresh, inv, refreshI
       {!searching && (range === "today" || range === "tomorrow" || range === "date") && (() => {
         const labelDay = df || today;
         const dayOrders = orders.filter(o => o.pickup_date === labelDay && o.status !== "cancelled" && (!lf || o.location_id === lf)).sort((a, b) => a.daily_number - b.daily_number);
-        return <div style={{ background: "#fff", border: "1px solid #e8e8e8", borderRadius: 10, padding: "10px 12px", marginBottom: 12 }}>
+        return <Card tight style={{ marginBottom: 12 }}>
           <LabelPrint all getLabels={() => labelsFor(dayOrders, orderItemsMap, items)} caption={fmtDateLongShort(labelDay)} showStatus={can("manager")} />
-        </div>;
+        </Card>;
       })()}
 
       {/* Summary line */}
-      <p style={{ fontSize: 12, color: "#888", margin: "0 0 8px" }}>
+      <p className="small muted" style={{ marginBottom: 8 }}>
         {searching ? `${filtered.length} match${filtered.length === 1 ? "" : "es"}` : `${filtered.length} order${filtered.length === 1 ? "" : "s"}${range === "today" ? " today" : range === "tomorrow" ? " tomorrow" : range === "date" ? ` on ${fmtDate(df)}` : range === "upcoming" ? " upcoming" : ""}`}
         {Object.keys(statusCounts).filter(k => k !== "pending").map(k => ` · ${statusCounts[k]} ${k}`).join("")}
       </p>
 
-      {filtered.length === 0 ? <p style={{ color: "#888", textAlign: "center", padding: "2rem" }}>{searching ? "No orders match." : range === "today" ? "No pickups today." : "No orders."}</p> :
+      {filtered.length === 0 ? <Empty>{searching ? "No orders match." : range === "today" ? "No pickups today." : "No orders."}</Empty> :
         filtered.map((o, idx) => {
           const loc = LOCS.find(l => l.id === o.location_id);
-          const sc = SCOLOR[o.status] || { bg: "#eee", txt: "#666" };
           const lineItems = orderItemsMap[o.id] || [];
           const qty = lineItems.reduce((n, li) => n + (parseInt(li.quantity) || 0), 0);
           const itemSummary = lineItems.map(li => { const item = items.find(i => i.id === li.item_id); return `${li.quantity > 1 ? `${li.quantity}× ` : ""}${item?.name || ""}`; }).join(", ");
           const showHeader = groupByDate && (idx === 0 || filtered[idx - 1].pickup_date !== o.pickup_date);
           return (
             <div key={o.id}>
-              {showHeader && <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, flexWrap: "wrap", margin: "14px 0 6px" }}>
-                <p style={{ fontSize: 11, fontWeight: 600, color: "#8B1A2B", textTransform: "uppercase", letterSpacing: 1, margin: 0 }}>{o.pickup_date === today ? "Today" : o.pickup_date === tomorrow ? "Tomorrow" : fmtDateLongShort(o.pickup_date)}</p>
+              {showHeader && <div className="date-head">
+                <p className="eyebrow brand">{o.pickup_date === today ? "Today" : o.pickup_date === tomorrow ? "Tomorrow" : fmtDateLongShort(o.pickup_date)}</p>
                 <LabelPrint all getLabels={() => labelsFor(filtered.filter(x => x.pickup_date === o.pickup_date && x.status !== "cancelled").sort((a, b) => a.daily_number - b.daily_number), orderItemsMap, items)} caption={fmtDateLongShort(o.pickup_date)} />
               </div>}
-              <div onClick={() => openDetail(o)} title={itemSummary} style={{ background: "#fff", border: "1px solid #e8e8e8", borderRadius: 8, padding: "8px 12px", marginBottom: 4, cursor: "pointer", display: "flex", alignItems: "center", gap: 10, opacity: o.status === "cancelled" ? 0.55 : 1 }}>
-                <span style={{ fontSize: 16, fontWeight: 700, color: "#8B1A2B", minWidth: 34, textAlign: "center" }}>#{o.daily_number}</span>
-                <span style={{ fontSize: 12, color: "#444", minWidth: 64, fontVariantNumeric: "tabular-nums" }}>{fmtTime(o.pickup_time)}</span>
-                <span style={{ flex: 1, minWidth: 0, fontSize: 13, fontWeight: 500, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{o.customer_name}{(searching || range === "all") && <span style={{ color: "#aaa", fontWeight: 400 }}> · {fmtDate(o.pickup_date)}</span>}{!activeLoc && <span style={{ color: "#aaa", fontWeight: 400 }}> · {loc?.name}</span>}</span>
-                <span style={{ fontSize: 11, color: "#888", whiteSpace: "nowrap" }}>{qty} item{qty === 1 ? "" : "s"}</span>
-                <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 5, background: sc.bg, color: sc.txt, fontWeight: 500, whiteSpace: "nowrap" }}>{o.status}</span>
+              <div className={cx("order-row", o.status === "cancelled" && "cancelled")} onClick={() => openDetail(o)} title={itemSummary}>
+                <span className="order-num">#{o.daily_number}</span>
+                <span className="order-time num">{fmtTime(o.pickup_time)}</span>
+                <span className="order-name ellipsis">{o.customer_name}{(searching || range === "all") && <span className="sub"> · {fmtDate(o.pickup_date)}</span>}{!activeLoc && <span className="sub"> · {loc?.name}</span>}</span>
+                <span className="order-qty">{qty} item{qty === 1 ? "" : "s"}</span>
+                <Chip tone={o.status}>{o.status}</Chip>
               </div>
             </div>
           );
@@ -867,7 +844,7 @@ function Orders({ activeLoc, user, orders, orderItemsMap, refresh, inv, refreshI
   );
 }
 
-function NewOrder({ activeLoc, user, orders, refresh, inv, refreshInv, items, setView, printerIps = {}, paperOn = {}, customers = [], refreshCustomers }) {
+function NewOrder({ activeLoc, user, orders, refresh, inv, refreshInv, items, setView, paperOn = {}, customers = [], refreshCustomers }) {
   const locs = activeLoc ? LOCS.filter(l => l.id === activeLoc) : LOCS;
   const orderableItems = items.filter(i => i.active !== false);
   const [locationId, setLocationId] = useState(activeLoc || locs[0]?.id || "");
@@ -1017,14 +994,7 @@ function NewOrder({ activeLoc, user, orders, refresh, inv, refreshInv, items, se
       const res = await fetch("/api/send-receipt", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          to: toAddr,
-          locationId: placedOrder.location_id,
-          order: placedOrder,
-          orderItems: placedOrderItems,
-          items,
-          loc,
-        }),
+        body: JSON.stringify({ to: toAddr, locationId: placedOrder.location_id, order: placedOrder, orderItems: placedOrderItems, items, loc }),
       });
       if (res.ok) { setEmailStatus("sent"); }
       else { setEmailStatus("error"); }
@@ -1036,126 +1006,96 @@ function NewOrder({ activeLoc, user, orders, refresh, inv, refreshInv, items, se
 
   // Confirmation screen
   if (confirming && placedOrder) {
-    const loc = LOCS.find(l => l.id === placedOrder.location_id);
-    const hasEmail = !!confirmEmail;
+    const paper = !!paperOn[placedOrder.location_id];
+    const sent = emailStatus === "sent";
+    const validEmail = confirmEmail && confirmEmail.includes("@");
     return (
-      <div style={{ maxWidth: 420 }}>
-        {/* Order confirmed header */}
-        <div style={{ background: "#fff", border: "1px solid #e8e8e8", borderRadius: 10, padding: "20px", marginBottom: 16, textAlign: "center" }}>
-          <p style={{ fontSize: 32, margin: "0 0 6px" }}>✓</p>
-          <p style={{ fontSize: 16, fontWeight: 600, margin: "0 0 4px" }}>Order Confirmed</p>
-          <p style={{ fontSize: 28, fontWeight: 700, color: "#8B1A2B", margin: "4px 0 2px" }}>#{placedOrder.daily_number}</p>
-          <p style={{ fontSize: 12, color: "#888", margin: 0 }}>Invoice #{placedOrder.invoice_number} · {placedOrder.customer_name}</p>
-          <p style={{ fontSize: 12, color: "#888", margin: "2px 0 0" }}>Pickup: {fmtDate(placedOrder.pickup_date)} at {fmtTime(placedOrder.pickup_time)}</p>
-        </div>
+      <div style={{ maxWidth: 440 }}>
+        <Card style={{ textAlign: "center", marginBottom: 14, padding: 24 }}>
+          <div style={{ width: 44, height: 44, borderRadius: "50%", background: "var(--ok-bg)", color: "var(--ok)", display: "inline-flex", alignItems: "center", justifyContent: "center", marginBottom: 8 }}><Icon name="check" size={24} /></div>
+          <p className="h2">Order confirmed</p>
+          <p style={{ fontSize: 40, fontWeight: 800, color: "var(--brand)", lineHeight: 1.1, margin: "6px 0 4px" }}>#{placedOrder.daily_number}</p>
+          <p className="small muted">Invoice #{placedOrder.invoice_number} · {placedOrder.customer_name}</p>
+          <p className="small muted">Pickup: {fmtDate(placedOrder.pickup_date)} at {fmtTime(placedOrder.pickup_time)}</p>
+        </Card>
 
-        {/* Receipt delivery — email first */}
-        {(() => {
-          const paper = !!paperOn[placedOrder.location_id];
-          const sent = emailStatus === "sent";
-          const validEmail = confirmEmail && confirmEmail.includes("@");
-          return (
-            <div style={{ background: "#fff", border: "1px solid #e8e8e8", borderRadius: 10, padding: "16px", marginBottom: 16 }}>
-              <p style={{ fontSize: 12, color: "#666", textTransform: "uppercase", letterSpacing: 1, marginBottom: 10, marginTop: 0 }}>Send receipt</p>
-              {sent ? (
-                <div style={{ background: "#e8f5e9", border: "1px solid #c8e6c9", borderRadius: 8, padding: "12px 14px", textAlign: "center" }}>
-                  <p style={{ fontSize: 14, fontWeight: 600, color: "#2e7d32", margin: 0 }}>✓ Receipt emailed</p>
-                  <p style={{ fontSize: 12, color: "#2e7d32", margin: "3px 0 0" }}>{confirmEmail}</p>
-                </div>
-              ) : (
-                <>
-                  <input autoComplete="one-time-code" name="nofill" data-lpignore="true" data-1p-ignore="true"
-                    type="email"
-                    inputMode="email"
-                    value={confirmEmail}
-                    onChange={e => { setConfirmEmail(e.target.value); setEmailStatus(""); }}
-                    onKeyDown={e => e.key === "Enter" && validEmail && sendEmail(confirmEmail)}
-                    placeholder="Customer email address"
-                    style={{ ...inp, fontSize: 16, padding: "11px 12px", marginBottom: 10 }}
-                  />
-                  <button
-                    onClick={() => sendEmail(confirmEmail)}
-                    disabled={emailSending || !validEmail}
-                    style={{ width: "100%", background: validEmail ? "#8B1A2B" : "#ccc", color: "#fff", border: "none", borderRadius: 8, padding: "13px 14px", fontSize: 15, fontWeight: 600, cursor: validEmail && !emailSending ? "pointer" : "default", opacity: emailSending ? 0.7 : 1 }}
-                  >
-                    {emailSending ? "Sending…" : "Confirm & Email Receipt"}
-                  </button>
-                  {emailStatus === "error" && <p style={{ fontSize: 12, color: "#c62828", margin: "8px 0 0" }}>Failed to send. Check the address and try again.</p>}
-                  {emailStatus === "error_addr" && <p style={{ fontSize: 12, color: "#c62828", margin: "8px 0 0" }}>Please enter a valid email address.</p>}
-                  {!validEmail && <p style={{ fontSize: 11, color: "#888", margin: "8px 0 0", textAlign: "center" }}>No email? The order is already saved — the customer can reference order #{placedOrder.daily_number}.</p>}
-                </>
-              )}
-              {paper && (
-                <button
-                  onClick={() => printReceipt(placedOrder, placedOrderItems, items, LOCS, printerIps)}
-                  style={{ width: "100%", marginTop: 10, background: "#fff", color: "#555", border: "1px solid #ddd", borderRadius: 8, padding: "10px 14px", fontSize: 13, cursor: "pointer" }}
-                >
-                  🖨️ Print paper receipt
-                </button>
-              )}
-            </div>
-          );
-        })()}
+        <Card style={{ marginBottom: 14 }}>
+          <p className="eyebrow" style={{ marginBottom: 10 }}>Send receipt</p>
+          {sent ? (
+            <Banner tone="ok" style={{ justifyContent: "center", flexDirection: "column", alignItems: "center", textAlign: "center" }}>
+              <p style={{ fontWeight: 600 }}>Receipt emailed</p>
+              <p className="xs">{confirmEmail}</p>
+            </Banner>
+          ) : (
+            <>
+              <Input type="email" inputMode="email" value={confirmEmail} onChange={e => { setConfirmEmail(e.target.value); setEmailStatus(""); }}
+                onKeyDown={e => e.key === "Enter" && validEmail && sendEmail(confirmEmail)} placeholder="Customer email address" style={{ marginBottom: 10 }} />
+              <Button variant="primary" size="lg" full icon="mail" onClick={() => sendEmail(confirmEmail)} disabled={emailSending || !validEmail}>
+                {emailSending ? "Sending…" : "Confirm & email receipt"}
+              </Button>
+              {emailStatus === "error" && <p className="xs danger" style={{ marginTop: 8 }}>Failed to send. Check the address and try again.</p>}
+              {emailStatus === "error_addr" && <p className="xs danger" style={{ marginTop: 8 }}>Please enter a valid email address.</p>}
+              {!validEmail && <p className="xs muted" style={{ marginTop: 8, textAlign: "center" }}>No email? The order is already saved — the customer can reference order #{placedOrder.daily_number}.</p>}
+            </>
+          )}
+          {paper && <Button full icon="printer" style={{ marginTop: 10 }} onClick={() => printReceipt(placedOrder, placedOrderItems, items, LOCS)}>Print paper receipt</Button>}
+        </Card>
 
-        {/* Done button */}
-        <button
-          onClick={() => setView("orders")}
-          style={{ width: "100%", background: "#8B1A2B", color: "#fff", border: "none", borderRadius: 8, padding: 11, fontSize: 14, fontWeight: 500, cursor: "pointer" }}
-        >
-          Done — Back to Orders
-        </button>
+        <Button variant="primary" full onClick={() => setView("orders")}>Done — back to orders</Button>
       </div>
     );
   }
 
   return (
-    <div style={{ maxWidth: 520 }}>
-      <p style={{ fontSize: 15, fontWeight: 500, marginBottom: "1rem" }}>New order</p>
-      {!activeLoc && <F label="Location"><select value={locationId} onChange={e => setLocationId(e.target.value)} style={inp}>{LOCS.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}</select></F>}
-      <div style={{ position: "relative", marginBottom: 12 }}>
-        <p style={{ fontSize: 12, color: "#666", marginBottom: 4 }}>Find customer <span style={{ color: "#aaa" }}>(name, phone, or email)</span></p>
-        <input autoComplete="one-time-code" name="nofill" data-lpignore="true" data-1p-ignore="true" value={custQuery} onChange={e => setCustQuery(e.target.value)} placeholder="Start typing to search…" style={inp} />
-        {custResults.length > 0 && <div style={{ position: "absolute", left: 0, right: 0, top: "100%", zIndex: 20, background: "#fff", border: "1px solid #ddd", borderRadius: 8, boxShadow: "0 6px 20px rgba(0,0,0,.08)", overflow: "hidden" }}>
-          {custResults.map(c => <div key={c.id} onClick={() => applyCustomer(c)} style={{ padding: "9px 12px", borderBottom: "1px solid #f0f0f0", cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <div><p style={{ fontSize: 13, fontWeight: 500, margin: 0 }}>{c.name}</p><p style={{ fontSize: 11, color: "#888", margin: 0 }}>{c.phone}{c.email ? ` · ${c.email}` : ""}</p></div>
-            <span style={{ fontSize: 11, color: "#888" }}>{custOrderCount(c)} order{custOrderCount(c) === 1 ? "" : "s"}</span>
-          </div>)}
-        </div>}
+    <div style={{ maxWidth: 540 }}>
+      <p className="h1">New order</p>
+      {!activeLoc && <Field label="Location"><Select value={locationId} onChange={e => setLocationId(e.target.value)}>{LOCS.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}</Select></Field>}
+      <Field label={<>Find customer <span className="faint">(name, phone, or email)</span></>}>
+        <div style={{ position: "relative" }}>
+          <Input value={custQuery} onChange={e => setCustQuery(e.target.value)} placeholder="Start typing to search…" />
+          {custResults.length > 0 && <div className="dropdown">
+            {custResults.map(c => <div key={c.id} className="dropdown-item" onClick={() => applyCustomer(c)}>
+              <div className="ellipsis"><p style={{ fontWeight: 600 }}>{c.name}</p><p className="xs muted ellipsis">{c.phone}{c.email ? ` · ${c.email}` : ""}</p></div>
+              <span className="xs muted" style={{ whiteSpace: "nowrap" }}>{custOrderCount(c)} order{custOrderCount(c) === 1 ? "" : "s"}</span>
+            </div>)}
+          </div>}
+        </div>
+      </Field>
+      <Field label="Phone number">
+        <Input inputMode="tel" value={phone} onChange={handlePhone} placeholder="(xxx) xxx-xxxx" />
+        {matched && <p className="xs ok" style={{ marginTop: 5 }}>Returning customer · {custOrderCount(matched)} previous order{custOrderCount(matched) === 1 ? "" : "s"}</p>}
+        {!matched && digits(phone).length >= 10 && <p className="xs muted" style={{ marginTop: 5 }}>New customer</p>}
+      </Field>
+      <div className="grid2">
+        <Field label="First name"><Input value={firstName} onChange={e => setFirstName(e.target.value)} placeholder="First name" /></Field>
+        <Field label="Last name"><Input value={lastName} onChange={e => setLastName(e.target.value)} placeholder="Last name" /></Field>
       </div>
-      <F label="Phone number">
-        <input autoComplete="one-time-code" name="nofill" data-lpignore="true" data-1p-ignore="true" inputMode="tel" value={phone} onChange={handlePhone} placeholder="(xxx) xxx-xxxx" style={{ ...inp, fontSize: 16 }} />
-        {matched && <p style={{ fontSize: 12, color: "#2e7d32", margin: "5px 0 0" }}>✓ Returning customer · {custOrderCount(matched)} previous order{custOrderCount(matched) === 1 ? "" : "s"}</p>}
-        {!matched && digits(phone).length >= 10 && <p style={{ fontSize: 12, color: "#888", margin: "5px 0 0" }}>New customer</p>}
-      </F>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-        <F label="First name"><input autoComplete="one-time-code" name="nofill" data-lpignore="true" data-1p-ignore="true" value={firstName} onChange={e => setFirstName(e.target.value)} placeholder="First name" style={inp} /></F>
-        <F label="Last name"><input autoComplete="one-time-code" name="nofill" data-lpignore="true" data-1p-ignore="true" value={lastName} onChange={e => setLastName(e.target.value)} placeholder="Last name" style={inp} /></F>
+      <Field label="Customer email (optional)"><Input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="customer@email.com" /></Field>
+      <Field label="Items">
+        <div className="stack">
+          {lineItems.map((li, i) => {
+            const stock = getStockForItem(li.item_id);
+            return <div key={i}>
+              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                <Select value={li.item_id} onChange={e => updateLineItem(i, "item_id", e.target.value)} style={{ flex: 3 }}>
+                  {orderableItems.map(x => <option key={x.id} value={x.id}>{x.name}</option>)}
+                </Select>
+                <Input type="number" min={1} value={li.quantity} onChange={e => updateLineItem(i, "quantity", e.target.value)} style={{ width: 72, flex: "none" }} />
+                {lineItems.length > 1 && <button type="button" className="close" style={{ margin: 0 }} onClick={() => removeLineItem(i)} aria-label="Remove">×</button>}
+              </div>
+              {stock !== null && <p className={cx("xs", stock <= 0 ? "danger" : stock <= 5 ? "warn" : "ok")} style={{ marginTop: 4, marginLeft: 2 }}>{stock <= 0 ? "Out of stock" : stock <= 5 ? `Low stock (${stock} left in pool)` : `${stock} in pool`}</p>}
+            </div>;
+          })}
+          <div><Button variant="outline" size="sm" icon="plus" onClick={addLineItem}>Add item</Button></div>
+        </div>
+      </Field>
+      <div className="grid2">
+        <Field label="Pickup date"><Input type="date" value={pickupDate} onChange={e => setPickupDate(e.target.value)} /></Field>
+        <Field label="Pickup time"><TimeInput value={pickupTime} onChange={setPickupTime} /></Field>
       </div>
-      <F label="Customer email (optional)"><input autoComplete="one-time-code" name="nofill" data-lpignore="true" data-1p-ignore="true" type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="customer@email.com" style={inp} /></F>
-      <div style={{ marginBottom: 12 }}>
-        <p style={{ fontSize: 12, color: "#666", marginBottom: 6 }}>Items</p>
-        {lineItems.map((li, i) => {
-          const stock = getStockForItem(li.item_id);
-          return <div key={i} style={{ marginBottom: 8 }}>
-            <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-              <select value={li.item_id} onChange={e => updateLineItem(i, "item_id", e.target.value)} style={{ ...inp, flex: 3 }}>
-                {orderableItems.map(x => <option key={x.id} value={x.id}>{x.name}</option>)}
-              </select>
-              <input autoComplete="one-time-code" name="nofill" data-lpignore="true" data-1p-ignore="true" type="number" min={1} value={li.quantity} onChange={e => updateLineItem(i, "quantity", e.target.value)} style={{ ...inp, width: 60, flex: "none" }} />
-              {lineItems.length > 1 && <button onClick={() => removeLineItem(i)} style={{ background: "none", border: "none", color: "#c62828", fontSize: 18, cursor: "pointer", padding: "0 4px", flexShrink: 0 }}>×</button>}
-            </div>
-            {stock !== null && <p style={{ fontSize: 11, marginTop: 2, marginLeft: 2, color: stock <= 0 ? "#c62828" : stock <= 5 ? "#e65100" : "#2e7d32" }}>{stock <= 0 ? "⚠ Out of stock" : stock <= 5 ? `⚠ Low stock (${stock} left in pool)` : `${stock} in pool`}</p>}
-          </div>;
-        })}
-        <button onClick={addLineItem} style={{ fontSize: 12, color: "#8B1A2B", background: "none", border: "1px solid #8B1A2B", borderRadius: 7, padding: "5px 12px", cursor: "pointer", marginTop: 2 }}>+ Add item</button>
-      </div>
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-        <F label="Pickup date"><input autoComplete="one-time-code" name="nofill" data-lpignore="true" data-1p-ignore="true" type="date" value={pickupDate} onChange={e => setPickupDate(e.target.value)} style={inp} /></F>
-        <F label="Pickup time"><TimeInput value={pickupTime} onChange={setPickupTime} /></F>
-      </div>
-      <F label="Notes (optional)"><textarea autoComplete="one-time-code" name="nofill" data-lpignore="true" data-1p-ignore="true" value={notes} onChange={e => setNotes(e.target.value)} style={{ ...inp, height: 58, resize: "vertical" }} placeholder="Special instructions..." /></F>
-      {err && <p style={{ color: "#c62828", fontSize: 12, marginBottom: 10 }}>{err}</p>}
-      <button onClick={submit} style={{ width: "100%", background: "#8B1A2B", color: "#fff", border: "none", borderRadius: 8, padding: 11, fontSize: 14, fontWeight: 500, cursor: "pointer" }}>Place order →</button>
+      <Field label="Notes (optional)"><Textarea value={notes} onChange={e => setNotes(e.target.value)} placeholder="Special instructions..." /></Field>
+      {err && <Banner tone="err" style={{ marginBottom: 12 }}><Icon name="alert" size={16} />{err}</Banner>}
+      <Button variant="primary" size="lg" full onClick={submit}>Place order</Button>
     </div>
   );
 }
@@ -1203,75 +1143,73 @@ function Customers({ customers, refreshCustomers, orders, orderItemsMap, items, 
     const c = customers.find(x => x.id === sel.id) || sel;
     const os = custOrders(c);
     return (
-      <div style={{ maxWidth: 560 }}>
-        <button onClick={() => { setSel(null); setEdit(null); }} style={{ background: "none", border: "none", color: "#8B1A2B", fontSize: 13, cursor: "pointer", padding: 0, marginBottom: 10 }}>← All customers</button>
-        <div style={{ background: "#fff", border: "1px solid #e8e8e8", borderRadius: 10, padding: 16, marginBottom: 14 }}>
+      <div style={{ maxWidth: 580 }}>
+        <Button variant="ghost" icon="back" style={{ marginBottom: 10, marginLeft: -8 }} onClick={() => { setSel(null); setEdit(null); }}>All customers</Button>
+        <Card style={{ marginBottom: 14 }}>
           {edit ? (
             <div>
-              <F label="Name"><input autoComplete="one-time-code" name="nofill" data-lpignore="true" data-1p-ignore="true" value={edit.name} onChange={e => setEdit(f => ({ ...f, name: e.target.value }))} style={inp} /></F>
-              <F label="Phone"><input autoComplete="one-time-code" name="nofill" data-lpignore="true" data-1p-ignore="true" value={edit.phone} onChange={e => setEdit(f => ({ ...f, phone: formatPhone(e.target.value) }))} style={inp} /></F>
-              <F label="Email"><input autoComplete="one-time-code" name="nofill" data-lpignore="true" data-1p-ignore="true" type="email" value={edit.email || ""} onChange={e => setEdit(f => ({ ...f, email: e.target.value }))} style={inp} /></F>
-              <F label="Home store"><select value={edit.home_location_id || ""} onChange={e => setEdit(f => ({ ...f, home_location_id: e.target.value }))} style={inp}><option value="">— Not set —</option>{LOCS.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}</select></F>
-              <F label="Notes"><textarea autoComplete="one-time-code" name="nofill" data-lpignore="true" data-1p-ignore="true" value={edit.notes || ""} onChange={e => setEdit(f => ({ ...f, notes: e.target.value }))} rows={2} style={{ ...inp, fontFamily: "inherit" }} placeholder="Preferences, allergies, anything staff should know" /></F>
-              {err && <p style={{ color: "#c62828", fontSize: 12, marginBottom: 8 }}>{err}</p>}
-              <div style={{ display: "flex", gap: 8 }}>
-                <button onClick={save} style={{ fontSize: 12, padding: "7px 14px", background: "#8B1A2B", color: "#fff", border: "none", borderRadius: 7, cursor: "pointer" }}>Save</button>
-                <button onClick={() => { setEdit(null); setErr(""); }} style={{ fontSize: 12, padding: "7px 14px", background: "none", border: "1px solid #ddd", borderRadius: 7, cursor: "pointer" }}>Cancel</button>
+              <Field label="Name"><Input value={edit.name} onChange={e => setEdit(f => ({ ...f, name: e.target.value }))} /></Field>
+              <Field label="Phone"><Input inputMode="tel" value={edit.phone} onChange={e => setEdit(f => ({ ...f, phone: formatPhone(e.target.value) }))} /></Field>
+              <Field label="Email"><Input type="email" value={edit.email || ""} onChange={e => setEdit(f => ({ ...f, email: e.target.value }))} /></Field>
+              <Field label="Home store"><Select value={edit.home_location_id || ""} onChange={e => setEdit(f => ({ ...f, home_location_id: e.target.value }))}><option value="">— Not set —</option>{LOCS.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}</Select></Field>
+              <Field label="Notes" error={err}><Textarea value={edit.notes || ""} onChange={e => setEdit(f => ({ ...f, notes: e.target.value }))} rows={2} placeholder="Preferences, allergies, anything staff should know" /></Field>
+              <div className="hstack">
+                <Button variant="primary" onClick={save}>Save</Button>
+                <Button onClick={() => { setEdit(null); setErr(""); }}>Cancel</Button>
               </div>
             </div>
           ) : (
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 10 }}>
-              <div>
-                <p style={{ fontSize: 17, fontWeight: 600, margin: 0 }}>{c.name}</p>
-                <p style={{ fontSize: 13, color: "#555", margin: "3px 0 0" }}>{c.phone}{c.email ? ` · ${c.email}` : ""}</p>
-                {c.notes && <p style={{ fontSize: 12, color: "#8B1A2B", margin: "6px 0 0", background: "#faf5f6", padding: "6px 8px", borderRadius: 6 }}>{c.notes}</p>}
-                <p style={{ fontSize: 11, color: "#888", margin: "8px 0 0" }}>{os.length} order{os.length === 1 ? "" : "s"}{homeOf(c) ? ` · Home store: ${locName(homeOf(c))}` : ""}</p>
+              <div style={{ minWidth: 0 }}>
+                <p className="h2">{c.name}</p>
+                <p className="small" style={{ marginTop: 3 }}>{c.phone}{c.email ? ` · ${c.email}` : ""}</p>
+                {c.notes && <p className="small brand" style={{ marginTop: 8, background: "var(--brand-tint)", padding: "8px 10px", borderRadius: 8 }}>{c.notes}</p>}
+                <p className="xs muted" style={{ marginTop: 8 }}>{os.length} order{os.length === 1 ? "" : "s"}{homeOf(c) ? ` · Home store: ${locName(homeOf(c))}` : ""}</p>
               </div>
-              <button onClick={() => setEdit({ ...c, home_location_id: homeOf(c) || "" })} style={{ fontSize: 12, color: "#8B1A2B", background: "none", border: "1px solid #8B1A2B", borderRadius: 7, padding: "5px 12px", cursor: "pointer", whiteSpace: "nowrap" }}>Edit</button>
+              <Button variant="outline" size="sm" onClick={() => setEdit({ ...c, home_location_id: homeOf(c) || "" })}>Edit</Button>
             </div>
           )}
-        </div>
-        <p style={{ fontSize: 12, color: "#666", textTransform: "uppercase", letterSpacing: 1, marginBottom: 8 }}>Order history</p>
-        {os.length === 0 && <p style={{ color: "#888", fontSize: 13 }}>No orders yet.</p>}
+        </Card>
+        <p className="eyebrow" style={{ marginBottom: 8 }}>Order history</p>
+        {os.length === 0 && <p className="small muted">No orders yet.</p>}
         {os.map(o => {
           const lis = orderItemsMap[o.id] || [];
           const summary = lis.map(li => `${items.find(i => i.id === li.item_id)?.name || "?"} ×${li.quantity}`).join(", ");
-          const sc = SCOLOR[o.status] || SCOLOR.pending;
-          return <div key={o.id} style={{ background: "#fff", border: "1px solid #e8e8e8", borderRadius: 10, padding: "10px 14px", marginBottom: 6, display: "flex", justifyContent: "space-between", gap: 10 }}>
+          return <Card key={o.id} tight row style={{ marginBottom: 6 }}>
             <div style={{ minWidth: 0 }}>
-              <p style={{ fontSize: 13, fontWeight: 500, margin: 0 }}>{fmtDate(o.pickup_date)} {fmtTime(o.pickup_time)} · #{o.invoice_number}</p>
-              <p style={{ fontSize: 12, color: "#888", margin: "2px 0 0", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{summary}</p>
-              <p style={{ fontSize: 11, color: "#aaa", margin: "2px 0 0" }}>{LOCS.find(l => l.id === o.location_id)?.name}</p>
+              <p style={{ fontWeight: 600 }}>{fmtDate(o.pickup_date)} {fmtTime(o.pickup_time)} · #{o.invoice_number}</p>
+              <p className="small muted ellipsis" style={{ marginTop: 2 }}>{summary}</p>
+              <p className="xs faint" style={{ marginTop: 2 }}>{LOCS.find(l => l.id === o.location_id)?.name}</p>
             </div>
-            <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 5, background: sc.bg, color: sc.txt, fontWeight: 500, alignSelf: "flex-start", whiteSpace: "nowrap" }}>{o.status}</span>
-          </div>;
+            <Chip tone={o.status}>{o.status}</Chip>
+          </Card>;
         })}
       </div>
     );
   }
 
   return (
-    <div style={{ maxWidth: 560 }}>
-      <p style={{ fontSize: 15, fontWeight: 500, marginBottom: 10 }}>Customers <span style={{ color: "#888", fontWeight: 400, fontSize: 13 }}>({list.length}{sf ? ` at ${locName(sf)}` : ""})</span></p>
-      <div style={{ display: "flex", gap: 6, overflowX: "auto", marginBottom: 10, paddingBottom: 2 }}>
-        {[{ id: "", name: "All stores" }, ...LOCS].map(l => {
-          const on = sf === l.id;
-          return <button key={l.id || "all"} onClick={() => setSf(l.id)} style={{ flex: "0 0 auto", fontSize: 12, padding: "6px 12px", borderRadius: 16, cursor: "pointer", whiteSpace: "nowrap", border: `1px solid ${on ? "#8B1A2B" : "#ddd"}`, background: on ? "#8B1A2B" : "#fff", color: on ? "#fff" : "#444", fontWeight: on ? 600 : 400 }}>{l.name} <span style={{ opacity: 0.7 }}>{storeCount(l.id)}</span></button>;
-        })}
+    <div style={{ maxWidth: 580 }}>
+      <p className="h1">Customers <span className="muted" style={{ fontWeight: 400, fontSize: "var(--fs-md)" }}>({list.length}{sf ? ` at ${locName(sf)}` : ""})</span></p>
+      <div className="pills scroll" style={{ marginBottom: 12 }}>
+        {[{ id: "", name: "All stores" }, ...LOCS].map(l => <Pill key={l.id || "all"} on={sf === l.id} count={storeCount(l.id)} onClick={() => setSf(l.id)}>{l.name}</Pill>)}
       </div>
-      <input autoComplete="one-time-code" name="nofill" data-lpignore="true" data-1p-ignore="true" value={q} onChange={e => setQ(e.target.value)} placeholder="Search name, phone, or email" style={{ ...inp, fontSize: 15, marginBottom: 12 }} />
+      <Input value={q} onChange={e => setQ(e.target.value)} placeholder="Search name, phone, or email" style={{ marginBottom: 12 }} />
       {list.slice(0, 100).map(c => {
         const n = custOrders(c).length;
-        return <div key={c.id} onClick={() => setSel(c)} style={{ background: "#fff", border: "1px solid #e8e8e8", borderRadius: 10, padding: "10px 14px", marginBottom: 6, cursor: "pointer", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 10 }}>
+        return <Card key={c.id} tight row tappable style={{ marginBottom: 6, minHeight: 60 }} onClick={() => setSel(c)}>
           <div style={{ minWidth: 0 }}>
-            <p style={{ fontSize: 13, fontWeight: 500, margin: 0 }}>{c.name}</p>
-            <p style={{ fontSize: 12, color: "#888", margin: "2px 0 0", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.phone}{c.email ? ` · ${c.email}` : ""}</p>
+            <p style={{ fontWeight: 600 }}>{c.name}</p>
+            <p className="small muted ellipsis" style={{ marginTop: 2 }}>{c.phone}{c.email ? ` · ${c.email}` : ""}</p>
           </div>
-          <span style={{ fontSize: 11, color: "#888", whiteSpace: "nowrap", textAlign: "right" }}>{n} order{n === 1 ? "" : "s"} ›{homeOf(c) && (!sf || homeOf(c) !== sf) && <><br /><span style={{ color: homeOf(c) === sf ? "#888" : "#8B1A2B" }}>{locName(homeOf(c))}</span></>}</span>
-        </div>;
+          <span className="xs muted" style={{ whiteSpace: "nowrap", textAlign: "right", display: "flex", alignItems: "center", gap: 4 }}>
+            <span>{n} order{n === 1 ? "" : "s"}{homeOf(c) && (!sf || homeOf(c) !== sf) && <><br /><span className="brand">{locName(homeOf(c))}</span></>}</span>
+            <Icon name="chevron" size={16} />
+          </span>
+        </Card>;
       })}
-      {list.length === 0 && <p style={{ color: "#888", fontSize: 13 }}>{q.trim() ? "No customers match." : `No customers at ${locName(sf)} yet.`}{sf && <> <button onClick={() => setSf("")} style={{ background: "none", border: "none", color: "#8B1A2B", fontSize: 13, cursor: "pointer", padding: 0, textDecoration: "underline" }}>Search all stores</button></>}</p>}
-      {list.length > 100 && <p style={{ color: "#888", fontSize: 12 }}>Showing first 100 — narrow your search.</p>}
+      {list.length === 0 && <p className="small muted">{q.trim() ? "No customers match." : `No customers at ${locName(sf)} yet.`}{sf && <> <button type="button" className="btn-link" onClick={() => setSf("")}>Search all stores</button></>}</p>}
+      {list.length > 100 && <p className="xs muted">Showing first 100 — narrow your search.</p>}
     </div>
   );
 }
@@ -1323,7 +1261,6 @@ function Reports({ activeLoc, orders, orderItemsMap, items, user, can }) {
 
   const downloadContactCSV = (emailOnly) => {
     const rows = emailOnly ? contactsWithEmail : contacts;
-    const ln = loc ? LOCS.find(l => l.id === loc)?.name : "All Locations";
     const headers = ["Name", "Phone", "Email", "Location", "Last Order Date", "Last Items Ordered", "Total Orders"];
     const csv = [
       headers.join(","),
@@ -1347,45 +1284,42 @@ function Reports({ activeLoc, orders, orderItemsMap, items, user, can }) {
     URL.revokeObjectURL(url);
   };
 
-  const printPop = () => {
-    const ln = loc ? LOCS.find(l => l.id === loc)?.name : "All Locations";
-    const logoUrl = window.location.origin + LOGO_URL;
-    const html = `<!DOCTYPE html><html><head><title>Popularity Report</title><style>@page { size: letter; margin: 0.5in; }
-      body{font-family:Arial,sans-serif;font-size:12px;padding:20px}
-      h2{margin:0 0 3px}p.sub{margin:0 0 12px;color:#666}
-      table{width:100%;border-collapse:collapse}
-      th{text-align:left;border-bottom:2px solid #000;padding:6px 8px;font-size:10px;text-transform:uppercase}
-      td{padding:6px 8px;border-bottom:1px solid #eee;font-size:12px}
-      .logo{width:50px;height:50px;object-fit:contain;margin-bottom:8px}
-    </style></head><body>
-      <img src="${logoUrl}" class="logo" />
-      <h2>Popularity Report — Iavarone Bros.</h2>
-      <p class="sub">Pickup: ${fmtDate(from) === fmtDate(to) ? fmtDate(from) : `${fmtDate(from)} to ${fmtDate(to)}`} · ${ln}</p>
-      <table><thead><tr><th>Qty</th><th>Item</th></tr></thead><tbody>
-        ${pop.map(r => `<tr><td>${r.count}</td><td>${r.item.name}</td></tr>`).join("")}
-      </tbody></table>
-      <script>window.onload=function(){window.print();}<\/script>
-    </body></html>`;
+  const rangeText = fmtDate(from) === fmtDate(to) ? fmtDate(from) : `${fmtDate(from)} to ${fmtDate(to)}`;
+  const openPrint = (html) => {
     const w = window.open("", "_blank");
     if (!w) { alert("Allow popups to print."); return; }
     w.document.write(html);
     w.document.close();
   };
-
-  const printProd = () => {
-    const ln = loc ? LOCS.find(l => l.id === loc)?.name : "All Locations";
-    const logoUrl = window.location.origin + LOGO_URL;
-    const html = `<!DOCTYPE html><html><head><title>Production</title><style>@page { size: letter; margin: 0.5in; }
+  const printCss = `@page { size: letter; margin: 0.5in; }
       body{font-family:Arial,sans-serif;font-size:12px;padding:20px}
       h2{margin:0 0 3px}p.sub{margin:0 0 12px;color:#666}
       table{width:100%;border-collapse:collapse}
       th{text-align:left;border-bottom:2px solid #000;padding:6px 8px;font-size:10px;text-transform:uppercase}
       td{padding:6px 8px;border-bottom:1px solid #eee;font-size:12px;vertical-align:top}
-      .logo{width:50px;height:50px;object-fit:contain;margin-bottom:8px}
-    </style></head><body>
+      .logo{width:50px;height:50px;object-fit:contain;margin-bottom:8px}`;
+
+  const printPop = () => {
+    const ln = loc ? LOCS.find(l => l.id === loc)?.name : "All Locations";
+    const logoUrl = window.location.origin + LOGO_URL;
+    openPrint(`<!DOCTYPE html><html><head><title>Popularity Report</title><style>${printCss}</style></head><body>
+      <img src="${logoUrl}" class="logo" />
+      <h2>Popularity Report — Iavarone Bros.</h2>
+      <p class="sub">Pickup: ${rangeText} · ${ln}</p>
+      <table><thead><tr><th>Qty</th><th>Item</th></tr></thead><tbody>
+        ${pop.map(r => `<tr><td>${r.count}</td><td>${r.item.name}</td></tr>`).join("")}
+      </tbody></table>
+      <script>window.onload=function(){window.print();}<\/script>
+    </body></html>`);
+  };
+
+  const printProd = () => {
+    const ln = loc ? LOCS.find(l => l.id === loc)?.name : "All Locations";
+    const logoUrl = window.location.origin + LOGO_URL;
+    openPrint(`<!DOCTYPE html><html><head><title>Production</title><style>${printCss}</style></head><body>
       <img src="${logoUrl}" class="logo" />
       <h2>Production Report — Iavarone Bros.</h2>
-      <p class="sub">Pickup: ${fmtDate(from) === fmtDate(to) ? fmtDate(from) : `${fmtDate(from)} to ${fmtDate(to)}`} · ${ln}</p>
+      <p class="sub">Pickup: ${rangeText} · ${ln}</p>
       <table><thead><tr>
         <th>#</th><th>Invoice</th><th>Location</th><th>Customer</th><th>Phone</th><th>Items</th><th>Pickup time</th><th>Notes</th>
       </tr></thead><tbody>
@@ -1399,63 +1333,58 @@ function Reports({ activeLoc, orders, orderItemsMap, items, user, can }) {
         }).join("")}
       </tbody></table>
       <script>window.onload=function(){window.print();}<\/script>
-    </body></html>`;
-    const w = window.open("", "_blank");
-    if (!w) { alert("Allow popups to print."); return; }
-    w.document.write(html);
-    w.document.close();
+    </body></html>`);
   };
+
+  const th = (cols) => <thead><tr>{cols.map(h => <th key={h}>{h}</th>)}</tr></thead>;
 
   return (
     <div>
-      <div style={{ display: "flex", gap: 8, marginBottom: 12, flexWrap: "wrap", alignItems: "center" }}>
-        <select value={type} onChange={e => setType(e.target.value)} style={{ ...inp, minWidth: 130, width: "auto" }}>
-          <option value="popularity">Popularity</option>
-          <option value="production">Production</option>
-          <option value="contacts">Contact List</option>
-        </select>
-        {type !== "contacts" && !activeLoc && <select value={loc} onChange={e => setLoc(e.target.value)} style={{ ...inp, minWidth: 130, width: "auto" }}><option value="">All locations</option>{LOCS.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}</select>}
-        {type !== "contacts" && <>
-          <input autoComplete="one-time-code" name="nofill" data-lpignore="true" data-1p-ignore="true" type="date" value={from} onChange={e => setFrom(e.target.value)} style={{ ...inp, minWidth: 130, width: "auto" }} />
-          <span style={{ color: "#888", fontSize: 12 }}>to</span>
-          <input autoComplete="one-time-code" name="nofill" data-lpignore="true" data-1p-ignore="true" type="date" value={to} onChange={e => setTo(e.target.value)} style={{ ...inp, minWidth: 130, width: "auto" }} />
-        </>}
-        {type === "popularity" && <button onClick={printPop} style={{ ...inp, width: "auto", background: "#fff", cursor: "pointer" }}>Print</button>}
+      <p className="h1">Reports</p>
+      <div className="pills" style={{ marginBottom: 12 }}>
+        {[["popularity", "Popularity"], ["production", "Production"], ["contacts", "Contact list"]].map(([v, l]) => <Pill key={v} on={type === v} onClick={() => setType(v)}>{l}</Pill>)}
+      </div>
+      {type !== "contacts" && <div className="hstack" style={{ marginBottom: 12 }}>
+        {!activeLoc && <Select inline value={loc} onChange={e => setLoc(e.target.value)} style={{ minWidth: 160 }}><option value="">All locations</option>{LOCS.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}</Select>}
+        <Input type="date" inline value={from} onChange={e => setFrom(e.target.value)} />
+        <span className="small muted">to</span>
+        <Input type="date" inline value={to} onChange={e => setTo(e.target.value)} />
+        {type === "popularity" && <Button icon="printer" onClick={printPop}>Print</Button>}
         {type === "production" && <>
-          <button onClick={printProd} style={{ ...inp, width: "auto", background: "#fff", cursor: "pointer" }}>Print</button>
+          <Button icon="printer" onClick={printProd}>Print</Button>
           <LabelPrint all getLabels={() => labelsFor(prod, orderItemsMap, items)} caption={from === to ? fmtDateLongShort(from) : `${fmtDate(from)} – ${fmtDate(to)}`} showStatus={can("manager")} />
         </>}
-      </div>
+      </div>}
       {type === "popularity" && <div>
-        <p style={{ color: "#888", fontSize: 12, marginBottom: 10 }}>{fil.length} orders · pickup {fmtDate(from) === fmtDate(to) ? fmtDate(from) : `${fmtDate(from)} – ${fmtDate(to)}`}</p>
-        {pop.length === 0 ? <p style={{ color: "#888", textAlign: "center", padding: "1.5rem" }}>No orders in this range.</p> :
-          pop.map(r => <div key={r.item.id} style={{ background: "#fff", border: "1px solid #e8e8e8", borderRadius: 10, padding: "9px 14px", marginBottom: 6, display: "flex", alignItems: "center", gap: 12 }}>
-            <span style={{ fontSize: 22, fontWeight: 700, color: "#8B1A2B", minWidth: 32, textAlign: "center" }}>{r.count}</span>
-            <span style={{ fontSize: 13 }}>{r.item.name}</span>
-          </div>)
+        <p className="small muted" style={{ marginBottom: 10 }}>{fil.length} orders · pickup {rangeText}</p>
+        {pop.length === 0 ? <Empty>No orders in this range.</Empty> :
+          pop.map(r => <Card key={r.item.id} tight style={{ marginBottom: 6, display: "flex", alignItems: "center", gap: 14 }}>
+            <span className="order-num" style={{ minWidth: 40 }}>{r.count}</span>
+            <span>{r.item.name}</span>
+          </Card>)
         }
       </div>}
       {type === "production" && <div>
-        <p style={{ color: "#888", fontSize: 12, marginBottom: 10 }}>{prod.length} orders</p>
-        {prod.length === 0 ? <p style={{ color: "#888", textAlign: "center", padding: "1.5rem" }}>No orders in this range.</p> :
-          <div style={{ overflowX: "auto" }}>
-            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
-              <thead><tr style={{ borderBottom: "1px solid #eee" }}>{["#", "Invoice", "Location", "Customer", "Phone", "Items", "Pickup", "Notes"].map(h => <th key={h} style={{ textAlign: "left", padding: "7px 8px", fontSize: 10, color: "#888", fontWeight: 500, textTransform: "uppercase", whiteSpace: "nowrap" }}>{h}</th>)}</tr></thead>
+        <p className="small muted" style={{ marginBottom: 10 }}>{prod.length} orders</p>
+        {prod.length === 0 ? <Empty>No orders in this range.</Empty> :
+          <div className="tbl-wrap">
+            <table className="tbl">
+              {th(["#", "Invoice", "Location", "Customer", "Phone", "Items", "Pickup", "Notes"])}
               <tbody>{prod.map(o => {
                 const l = LOCS.find(l => l.id === o.location_id);
                 const lineItems = (orderItemsMap[o.id] || []).map(li => {
                   const it = items.find(i => i.id === li.item_id);
                   return `${li.quantity > 1 ? `${li.quantity}x ` : ""}${it?.name || ""}`;
                 });
-                return <tr key={o.id} style={{ borderBottom: "1px solid #f5f5f5" }}>
-                  <td style={{ padding: "7px 8px", fontWeight: 700, color: "#8B1A2B" }}>{o.daily_number}</td>
-                  <td style={{ padding: "7px 8px", color: "#888" }}>#{o.invoice_number}</td>
-                  <td style={{ padding: "7px 8px", whiteSpace: "nowrap" }}>{l?.name}</td>
-                  <td style={{ padding: "7px 8px", whiteSpace: "nowrap" }}>{o.customer_name}</td>
-                  <td style={{ padding: "7px 8px", whiteSpace: "nowrap" }}>{o.customer_phone}</td>
-                  <td style={{ padding: "7px 8px" }}>{lineItems.map((li, i) => <div key={i}>{li}</div>)}</td>
-                  <td style={{ padding: "7px 8px", whiteSpace: "nowrap" }}>{fmtDate(o.pickup_date)} {fmtTime(o.pickup_time)}</td>
-                  <td style={{ padding: "7px 8px", color: "#888" }}>{o.notes}</td>
+                return <tr key={o.id}>
+                  <td style={{ fontWeight: 700, color: "var(--brand)" }}>{o.daily_number}</td>
+                  <td className="muted">#{o.invoice_number}</td>
+                  <td style={{ whiteSpace: "nowrap" }}>{l?.name}</td>
+                  <td style={{ whiteSpace: "nowrap" }}>{o.customer_name}</td>
+                  <td style={{ whiteSpace: "nowrap" }}>{o.customer_phone}</td>
+                  <td>{lineItems.map((li, i) => <div key={i}>{li}</div>)}</td>
+                  <td style={{ whiteSpace: "nowrap" }}>{fmtDate(o.pickup_date)} {fmtTime(o.pickup_time)}</td>
+                  <td className="muted">{o.notes}</td>
                 </tr>;
               })}</tbody>
             </table>
@@ -1463,41 +1392,45 @@ function Reports({ activeLoc, orders, orderItemsMap, items, user, can }) {
         }
       </div>}
       {type === "contacts" && <div>
-        {/* Summary bar */}
-        <div style={{ display: "flex", gap: 10, marginBottom: 14, flexWrap: "wrap", alignItems: "center" }}>
-          <div style={{ background: "#fff", border: "1px solid #e8e8e8", borderRadius: 8, padding: "8px 14px", fontSize: 12 }}>
-            <span style={{ color: "#888" }}>Total unique customers: </span><strong>{contacts.length}</strong>
-          </div>
-          <div style={{ background: "#fff", border: "1px solid #e8e8e8", borderRadius: 8, padding: "8px 14px", fontSize: 12 }}>
-            <span style={{ color: "#888" }}>With email: </span><strong style={{ color: "#2e7d32" }}>{contactsWithEmail.length}</strong>
-          </div>
-          <button onClick={() => downloadContactCSV(false)} style={{ padding: "8px 14px", background: "#8B1A2B", color: "#fff", border: "none", borderRadius: 7, fontSize: 12, cursor: "pointer" }}>
-            ⬇ Download All (.csv)
-          </button>
-          <button onClick={() => downloadContactCSV(true)} style={{ padding: "8px 14px", background: "#fff", color: "#8B1A2B", border: "1px solid #8B1A2B", borderRadius: 7, fontSize: 12, cursor: "pointer" }}>
-            ⬇ Email List Only (.csv)
-          </button>
+        <div className="hstack" style={{ marginBottom: 14 }}>
+          <Card tight className="small"><span className="muted">Unique customers: </span><strong>{contacts.length}</strong></Card>
+          <Card tight className="small"><span className="muted">With email: </span><strong className="ok">{contactsWithEmail.length}</strong></Card>
+          <Button variant="primary" icon="download" onClick={() => downloadContactCSV(false)}>Download all (.csv)</Button>
+          <Button variant="outline" icon="download" onClick={() => downloadContactCSV(true)}>Email list only (.csv)</Button>
         </div>
-        {contacts.length === 0 ? <p style={{ color: "#888", textAlign: "center", padding: "1.5rem" }}>No contacts yet.</p> :
-          <div style={{ overflowX: "auto" }}>
-            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
-              <thead><tr style={{ borderBottom: "1px solid #eee" }}>
-                {["Name", "Phone", "Email", "Location", "Last Order", "Orders"].map(h => <th key={h} style={{ textAlign: "left", padding: "7px 8px", fontSize: 10, color: "#888", fontWeight: 500, textTransform: "uppercase", whiteSpace: "nowrap" }}>{h}</th>)}
-              </tr></thead>
+        {contacts.length === 0 ? <Empty>No contacts yet.</Empty> :
+          <div className="tbl-wrap">
+            <table className="tbl">
+              {th(["Name", "Phone", "Email", "Location", "Last order", "Orders"])}
               <tbody>{contacts.map((c, i) => (
-                <tr key={i} style={{ borderBottom: "1px solid #f5f5f5" }}>
-                  <td style={{ padding: "7px 8px", whiteSpace: "nowrap", fontWeight: 500 }}>{c.name}</td>
-                  <td style={{ padding: "7px 8px", whiteSpace: "nowrap" }}>{c.phone}</td>
-                  <td style={{ padding: "7px 8px", color: c.email ? "#333" : "#ccc" }}>{c.email || "—"}</td>
-                  <td style={{ padding: "7px 8px", whiteSpace: "nowrap" }}>{c.location}</td>
-                  <td style={{ padding: "7px 8px", whiteSpace: "nowrap" }}>{fmtDate(c.last_order_date)}</td>
-                  <td style={{ padding: "7px 8px", textAlign: "center", fontWeight: 700, color: "#8B1A2B" }}>{c.order_count}</td>
+                <tr key={i}>
+                  <td style={{ whiteSpace: "nowrap", fontWeight: 600 }}>{c.name}</td>
+                  <td style={{ whiteSpace: "nowrap" }}>{c.phone}</td>
+                  <td className={c.email ? "" : "faint"}>{c.email || "—"}</td>
+                  <td style={{ whiteSpace: "nowrap" }}>{c.location}</td>
+                  <td style={{ whiteSpace: "nowrap" }}>{fmtDate(c.last_order_date)}</td>
+                  <td style={{ textAlign: "center", fontWeight: 700, color: "var(--brand)" }}>{c.order_count}</td>
                 </tr>
               ))}</tbody>
             </table>
           </div>
         }
       </div>}
+    </div>
+  );
+}
+
+function StockRow({ stock, onSet }) {
+  const tone = stock <= 0 ? "danger" : stock <= 5 ? "warn" : "ok";
+  const text = stock <= 0 ? "Out of stock" : stock <= 5 ? `Low (${stock})` : `${stock} units`;
+  return (
+    <div className="hstack" style={{ flexWrap: "nowrap" }}>
+      <div className="stepper">
+        <button type="button" onClick={() => onSet(stock - 1)} aria-label="Decrease">−</button>
+        <Input type="number" key={stock} defaultValue={stock} min={0} onBlur={e => onSet(e.target.value)} />
+        <button type="button" onClick={() => onSet(stock + 1)} aria-label="Increase">+</button>
+      </div>
+      <span className={cx("xs", tone)} style={{ minWidth: 70 }}>{text}</span>
     </div>
   );
 }
@@ -1519,48 +1452,29 @@ function Inventory({ activeLoc, can, inv, refreshInv, items, user }) {
 
   return (
     <div>
-      <p style={{ fontSize: 15, fontWeight: 500, marginBottom: "1rem" }}>Inventory</p>
+      <p className="h1">Inventory</p>
       {locs.map(loc => <div key={loc.id} style={{ marginBottom: "1.5rem" }}>
-        <p style={{ fontSize: 13, fontWeight: 500, color: "#8B1A2B", marginBottom: 8 }}>{loc.name}</p>
+        <p className="eyebrow brand" style={{ marginBottom: 8 }}>{loc.name}</p>
         {parentItems.map(parent => {
           const children = childItems.filter(c => c.parent_id === parent.id);
-          const parentStock = inv[`${loc.id}_${parent.id}`] ?? 0;
-
-          if (children.length > 0) {
-            return <div key={parent.id} style={{ background: "#fff", border: "1px solid #e8e8e8", borderRadius: 10, padding: "10px 14px", marginBottom: 8 }}>
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
-                <div style={{ flex: 1 }}>
-                  <p style={{ fontSize: 13, fontWeight: 600, margin: 0 }}>{parent.name}</p>
-                  <p style={{ fontSize: 11, color: "#888", margin: "2px 0 0" }}>Shared pool · covers plain & oven ready</p>
+          const stock = inv[`${loc.id}_${parent.id}`] ?? 0;
+          return <Card key={parent.id} tight style={{ marginBottom: 6 }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, flexWrap: "wrap" }}>
+              <div style={{ flex: 1, minWidth: 160 }}>
+                <p style={{ fontWeight: children.length ? 600 : 500 }}>{parent.name}</p>
+                {children.length > 0 && <p className="xs muted" style={{ marginTop: 2 }}>Shared pool · covers plain & oven ready</p>}
+              </div>
+              <StockRow stock={stock} onSet={v => set(loc.id, parent.id, v)} />
+            </div>
+            {children.length > 0 && <div style={{ marginTop: 8, paddingTop: 8, borderTop: "1px dashed var(--line)" }}>
+              {children.map(child => (
+                <div key={child.id} className="small muted" style={{ display: "flex", justifyContent: "space-between", padding: "2px 0" }}>
+                  <span>↳ {child.name}</span>
+                  <span className="xs faint">draws from pool above</span>
                 </div>
-                <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                  <button onClick={() => set(loc.id, parent.id, parentStock - 1)} style={{ width: 26, height: 26, borderRadius: "50%", background: "none", border: "1px solid #ddd", fontSize: 16, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>−</button>
-                  <input autoComplete="one-time-code" name="nofill" data-lpignore="true" data-1p-ignore="true" type="number" defaultValue={parentStock} key={`${loc.id}_${parent.id}_${parentStock}`} min={0} onBlur={e => set(loc.id, parent.id, e.target.value)} style={{ width: 50, textAlign: "center", padding: "5px", border: "1px solid #ddd", borderRadius: 7, fontSize: 13 }} />
-                  <button onClick={() => set(loc.id, parent.id, parentStock + 1)} style={{ width: 26, height: 26, borderRadius: "50%", background: "none", border: "1px solid #ddd", fontSize: 16, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>+</button>
-                  <span style={{ fontSize: 11, minWidth: 60, color: parentStock <= 0 ? "#c62828" : parentStock <= 5 ? "#e65100" : "#2e7d32" }}>{parentStock <= 0 ? "Out of stock" : parentStock <= 5 ? `Low (${parentStock})` : `${parentStock} units`}</span>
-                </div>
-              </div>
-              <div style={{ marginTop: 8, paddingTop: 8, borderTop: "1px dashed #eee" }}>
-                {children.map(child => (
-                  <div key={child.id} style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: "#666", padding: "2px 0" }}>
-                    <span>↳ {child.name}</span>
-                    <span style={{ color: "#aaa", fontSize: 11 }}>draws from pool above</span>
-                  </div>
-                ))}
-              </div>
-            </div>;
-          } else {
-            const stock = inv[`${loc.id}_${parent.id}`] ?? 0;
-            return <div key={parent.id} style={{ background: "#fff", border: "1px solid #e8e8e8", borderRadius: 10, padding: "9px 14px", marginBottom: 5, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
-              <span style={{ fontSize: 12, flex: 1 }}>{parent.name}</span>
-              <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                <button onClick={() => set(loc.id, parent.id, stock - 1)} style={{ width: 26, height: 26, borderRadius: "50%", background: "none", border: "1px solid #ddd", fontSize: 16, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>−</button>
-                <input autoComplete="one-time-code" name="nofill" data-lpignore="true" data-1p-ignore="true" type="number" defaultValue={stock} key={`${loc.id}_${parent.id}_${stock}`} min={0} onBlur={e => set(loc.id, parent.id, e.target.value)} style={{ width: 50, textAlign: "center", padding: "5px", border: "1px solid #ddd", borderRadius: 7, fontSize: 13 }} />
-                <button onClick={() => set(loc.id, parent.id, stock + 1)} style={{ width: 26, height: 26, borderRadius: "50%", background: "none", border: "1px solid #ddd", fontSize: 16, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center" }}>+</button>
-                <span style={{ fontSize: 11, minWidth: 60, color: stock <= 0 ? "#c62828" : stock <= 5 ? "#e65100" : "#2e7d32" }}>{stock <= 0 ? "Out of stock" : stock <= 5 ? `Low (${stock})` : `${stock} units`}</span>
-              </div>
-            </div>;
-          }
+              ))}
+            </div>}
+          </Card>;
         })}
       </div>)}
     </div>
@@ -1578,12 +1492,13 @@ function labelRuleText(it) {
   return `${soldTxt} · ${perPiece ? "1 label per piece" : "1 label per line"}${mode !== "default" ? " (override)" : ""}`;
 }
 function ItemLabelFields({ value, onChange }) {
-  const sel = { ...inp, flex: 1, minWidth: 150 };
-  return <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 8 }}>
-    <label style={{ flex: 1, minWidth: 150 }}><span style={{ display: "block", fontSize: 11, color: "#666", marginBottom: 3 }}>Sold by</span>
-      <select value={value.sold_by || "each"} onChange={e => onChange({ sold_by: e.target.value })} style={sel}>{SOLD_BY.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></label>
-    <label style={{ flex: 1, minWidth: 150 }}><span style={{ display: "block", fontSize: 11, color: "#666", marginBottom: 3 }}>Labels</span>
-      <select value={value.label_mode || "default"} onChange={e => onChange({ label_mode: e.target.value })} style={sel}>{LABEL_MODES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></label>
+  return <div className="grid2" style={{ marginBottom: 10 }}>
+    <Field label="Sold by">
+      <Select value={value.sold_by || "each"} onChange={e => onChange({ sold_by: e.target.value })}>{SOLD_BY.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</Select>
+    </Field>
+    <Field label="Labels">
+      <Select value={value.label_mode || "default"} onChange={e => onChange({ label_mode: e.target.value })}>{LABEL_MODES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</Select>
+    </Field>
   </div>;
 }
 
@@ -1699,186 +1614,181 @@ function Admin({ users, refreshUsers, items, refreshItems, user, can, printerIps
     await refreshItems();
   };
 
+  const roleSelect = (value, onChange) => (
+    <Select value={value} onChange={onChange} disabled={!isAdmin}>
+      <option value="clerk">Clerk</option>
+      {isAdmin && <option value="manager">Manager</option>}
+      {isAdmin && <option value="admin">Admin</option>}
+      {can("master_admin") && <option value="master_admin">Master Admin</option>}
+    </Select>
+  );
+  const locSelect = (value, onChange) => (
+    <Select value={value} onChange={onChange} disabled={!isAdmin}>
+      {LOCS.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
+    </Select>
+  );
+
   return (
     <div>
-      <div style={{ display: "flex", gap: 6, marginBottom: "1rem" }}>
-        {(isAdmin ? ["users", "items", "gmail", "printers"] : ["users"]).map(t => <button key={t} onClick={() => { setTab(t); if (t === "gmail") loadGmailTokens(); }} style={{ fontSize: 12, padding: "6px 14px", background: tab === t ? "#8B1A2B" : "#fff", color: tab === t ? "#fff" : "#888", border: "1px solid #ddd", borderRadius: 7, cursor: "pointer" }}>{t === "users" ? "Users" : t === "items" ? "Items" : t === "gmail" ? "Gmail" : "🖨️ Printers"}</button>)}
-      </div>
+      <p className="h1">{isAdmin ? "Admin" : "Users"}</p>
+      {isAdmin && <div className="pills" style={{ marginBottom: 16 }}>
+        {[["users", "Users"], ["items", "Items"], ["gmail", "Gmail"], ["printers", "Printers"]].map(([t, l]) => <Pill key={t} on={tab === t} onClick={() => { setTab(t); if (t === "gmail") loadGmailTokens(); }}>{l}</Pill>)}
+      </div>}
 
       {tab === "gmail" && <div>
-        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
-          <p style={{ fontSize: 13, color: "#666", margin: 0 }}>Connect each location's Gmail account to enable email receipts.</p>
-          <button onClick={loadGmailTokens} disabled={gmailLoading} style={{ fontSize: 11, padding: "5px 10px", background: "#fff", border: "1px solid #ddd", borderRadius: 6, cursor: "pointer", color: "#666" }}>
-            {gmailLoading ? "Checking..." : "↻ Refresh"}
-          </button>
+        <div className="hstack" style={{ justifyContent: "space-between", marginBottom: 14 }}>
+          <p className="small muted">Connect each location's Gmail account to enable email receipts.</p>
+          <Button size="sm" icon="refresh" onClick={loadGmailTokens} disabled={gmailLoading}>{gmailLoading ? "Checking…" : "Refresh"}</Button>
         </div>
         {LOCS.map(loc => {
           const status = gmailTokens[loc.id];
           const isConnected = status?.connected === true;
           const isInvalid = status && status.connected === false;
-          return <div key={loc.id} style={{ background: "#fff", border: `1px solid ${isInvalid ? "#fbb" : "#e8e8e8"}`, borderRadius: 10, padding: "12px 16px", marginBottom: 8, display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-            <div>
-              <p style={{ fontSize: 13, fontWeight: 500, margin: 0 }}>{loc.name}</p>
+          return <Card key={loc.id} tight row style={{ marginBottom: 8, borderColor: isInvalid ? "var(--danger)" : undefined }}>
+            <div style={{ minWidth: 0 }}>
+              <p style={{ fontWeight: 600 }}>{loc.name}</p>
               {gmailLoading
-                ? <p style={{ fontSize: 11, color: "#999", margin: "2px 0 0" }}>Checking...</p>
+                ? <p className="xs faint">Checking…</p>
                 : isConnected
-                  ? <p style={{ fontSize: 11, color: "#2e7d32", margin: "2px 0 0" }}>✓ Connected · {status.email} · Last authorized {new Date(status.updated_at).toLocaleDateString()}</p>
+                  ? <p className="xs ok">Connected · {status.email} · Last authorized {new Date(status.updated_at).toLocaleDateString()}</p>
                   : isInvalid
-                    ? <p style={{ fontSize: 11, color: "#c62828", margin: "2px 0 0" }}>⚠ Token invalid or revoked — reconnect required</p>
-                    : <p style={{ fontSize: 11, color: "#c62828", margin: "2px 0 0" }}>Not connected</p>
+                    ? <p className="xs danger">Token invalid or revoked — reconnect required</p>
+                    : <p className="xs danger">Not connected</p>
               }
             </div>
-            <a
-              href={`/api/auth/gmail?locationId=${loc.id}`}
-              style={{ padding: "7px 14px", background: isConnected ? "#fff" : "#8B1A2B", color: isConnected ? "#8B1A2B" : "#fff", border: "1px solid #8B1A2B", borderRadius: 7, fontSize: 12, textDecoration: "none", whiteSpace: "nowrap" }}
-            >
-              {isConnected ? "Reconnect" : isInvalid ? "Reconnect" : "Connect Gmail"}
+            <a href={`/api/auth/gmail?locationId=${loc.id}`} className={cx("btn", "btn-sm", isConnected ? "btn-outline" : "btn-primary")} style={{ textDecoration: "none" }}>
+              {isConnected || isInvalid ? "Reconnect" : "Connect Gmail"}
             </a>
-          </div>;
+          </Card>;
         })}
       </div>}
 
       {tab === "users" && <div>
-        <div style={{ background: "#fff", border: "1px solid #e8e8e8", borderRadius: 10, padding: "1rem", marginBottom: "1rem" }}>
-          <p style={{ fontSize: 13, fontWeight: 500, marginBottom: 10 }}>Add user</p>
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 8 }}>
-            <input autoComplete="one-time-code" name="nofill" data-lpignore="true" data-1p-ignore="true" value={name} onChange={e => setName(e.target.value)} placeholder="Full name" style={inp} />
-            <input autoComplete="one-time-code" name="nofill" data-lpignore="true" data-1p-ignore="true" value={username} onChange={e => setUsername(e.target.value)} placeholder="Username" style={inp} />
-            <input autoComplete="new-password" type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="Password" style={inp} />
-            <input autoComplete="one-time-code" name="nofill" data-lpignore="true" data-1p-ignore="true" value={pin} inputMode="numeric" maxLength={4} onChange={e => setPin(e.target.value.replace(/\D/g, "").slice(0, 4))} placeholder="4-digit PIN (for quick login)" style={inp} />
-            <select value={isAdmin ? role : "clerk"} onChange={e => setRole(e.target.value)} disabled={!isAdmin} style={inp}>
-              <option value="clerk">Clerk</option>
-              {isAdmin && <option value="manager">Manager</option>}
-              {isAdmin && <option value="admin">Admin</option>}
-              {can("master_admin") && <option value="master_admin">Master Admin</option>}
-            </select>
-            <select value={isAdmin ? locationId : user.location_id} onChange={e => setLocationId(e.target.value)} disabled={!isAdmin} style={inp}>
-              {LOCS.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
-            </select>
+        <Card style={{ marginBottom: 16 }}>
+          <p className="h2" style={{ marginBottom: 12 }}>Add user</p>
+          <div className="grid2">
+            <Input value={name} onChange={e => setName(e.target.value)} placeholder="Full name" />
+            <Input value={username} onChange={e => setUsername(e.target.value)} placeholder="Username" />
+            <PasswordInput value={password} onChange={e => setPassword(e.target.value)} placeholder="Password" />
+            <Input value={pin} inputMode="numeric" maxLength={4} onChange={e => setPin(e.target.value.replace(/\D/g, "").slice(0, 4))} placeholder="4-digit PIN (for quick login)" />
+            {roleSelect(isAdmin ? role : "clerk", e => setRole(e.target.value))}
+            {locSelect(isAdmin ? locationId : user.location_id, e => setLocationId(e.target.value))}
           </div>
-          <p style={{ fontSize: 11, color: "#888", margin: "0 0 8px" }}>Home store is where the user's orders default to. {isAdmin ? "" : "Managers can add clerks for their own store only."}</p>
-          {ue && <p style={{ color: "#c62828", fontSize: 12, marginBottom: 8 }}>{ue}</p>}
-          <button onClick={addU} style={{ fontSize: 12, padding: "6px 14px", background: "#8B1A2B", color: "#fff", border: "none", borderRadius: 7, cursor: "pointer" }}>Add user</button>
-        </div>
+          <p className="xs muted" style={{ margin: "10px 0" }}>Home store is where the user's orders default to. {isAdmin ? "" : "Managers can add clerks for their own store only."}</p>
+          {ue && !editingUser && <p className="xs danger" style={{ marginBottom: 10 }}>{ue}</p>}
+          <Button variant="primary" icon="plus" onClick={addU}>Add user</Button>
+        </Card>
 
         {visibleUsers.map(u => {
           const isEditing = editingUser?.id === u.id;
-          return <div key={u.id} style={{ background: "#fff", border: "1px solid #e8e8e8", borderRadius: 10, padding: "10px 14px", marginBottom: 5 }}>
+          return <Card key={u.id} tight style={{ marginBottom: 6 }}>
             {isEditing ? (
               <div>
-                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 8 }}>
-                  <input autoComplete="one-time-code" name="nofill" data-lpignore="true" data-1p-ignore="true" value={editingUser.name} onChange={e => setEditingUser(f => ({ ...f, name: e.target.value }))} placeholder="Full name" style={inp} />
-                  <input autoComplete="one-time-code" name="nofill" data-lpignore="true" data-1p-ignore="true" value={editingUser.username} onChange={e => setEditingUser(f => ({ ...f, username: e.target.value }))} placeholder="Username" style={inp} />
-                  <input autoComplete="new-password" type="password" value={editingUser.password} onChange={e => setEditingUser(f => ({ ...f, password: e.target.value }))} placeholder="Password" style={inp} />
-                  <input autoComplete="one-time-code" name="nofill" data-lpignore="true" data-1p-ignore="true" value={editingUser.pin || ""} inputMode="numeric" maxLength={4} onChange={e => setEditingUser(f => ({ ...f, pin: e.target.value.replace(/\D/g, "").slice(0, 4) }))} placeholder="4-digit PIN" style={inp} />
-                  <select value={editingUser.role} onChange={e => setEditingUser(f => ({ ...f, role: e.target.value }))} disabled={!isAdmin} style={inp}>
-                    <option value="clerk">Clerk</option>
-                    {isAdmin && <option value="manager">Manager</option>}
-                    {isAdmin && <option value="admin">Admin</option>}
-                    {can("master_admin") && <option value="master_admin">Master Admin</option>}
-                  </select>
-                  <select value={editingUser.location_id || ""} onChange={e => setEditingUser(f => ({ ...f, location_id: e.target.value }))} disabled={!isAdmin} style={inp}>
-                    {LOCS.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
-                  </select>
+                <div className="grid2" style={{ marginBottom: 10 }}>
+                  <Input value={editingUser.name} onChange={e => setEditingUser(f => ({ ...f, name: e.target.value }))} placeholder="Full name" />
+                  <Input value={editingUser.username} onChange={e => setEditingUser(f => ({ ...f, username: e.target.value }))} placeholder="Username" />
+                  <PasswordInput value={editingUser.password} onChange={e => setEditingUser(f => ({ ...f, password: e.target.value }))} placeholder="Password" />
+                  <Input value={editingUser.pin || ""} inputMode="numeric" maxLength={4} onChange={e => setEditingUser(f => ({ ...f, pin: e.target.value.replace(/\D/g, "").slice(0, 4) }))} placeholder="4-digit PIN" />
+                  {roleSelect(editingUser.role, e => setEditingUser(f => ({ ...f, role: e.target.value })))}
+                  {locSelect(editingUser.location_id || "", e => setEditingUser(f => ({ ...f, location_id: e.target.value })))}
                 </div>
-                {ue && <p style={{ color: "#c62828", fontSize: 12, marginBottom: 8 }}>{ue}</p>}
-                <div style={{ display: "flex", gap: 8 }}>
-                  <button onClick={saveEditUser} style={{ fontSize: 12, padding: "6px 14px", background: "#8B1A2B", color: "#fff", border: "none", borderRadius: 7, cursor: "pointer" }}>Save</button>
-                  <button onClick={() => setEditingUser(null)} style={{ fontSize: 12, padding: "6px 14px", background: "none", border: "1px solid #ddd", borderRadius: 7, cursor: "pointer" }}>Cancel</button>
+                {ue && <p className="xs danger" style={{ marginBottom: 10 }}>{ue}</p>}
+                <div className="hstack">
+                  <Button variant="primary" onClick={saveEditUser}>Save</Button>
+                  <Button onClick={() => setEditingUser(null)}>Cancel</Button>
                 </div>
               </div>
             ) : (
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                <div>
-                  <p style={{ fontSize: 13, fontWeight: 500, margin: 0 }}>{u.name} <span style={{ fontWeight: 400, color: "#888" }}>@{u.username}</span></p>
-                  <p style={{ fontSize: 11, color: "#888", margin: 0 }}>{ROLES[u.role]} · {LOCS.find(l => l.id === u.location_id)?.name || "No home store"} · {u.pin ? "PIN set" : <span style={{ color: "#e65100" }}>No PIN</span>}</p>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+                <div style={{ minWidth: 0 }}>
+                  <p style={{ fontWeight: 600 }}>{u.name} <span className="muted" style={{ fontWeight: 400 }}>@{u.username}</span></p>
+                  <p className="xs muted">{ROLES[u.role]} · {LOCS.find(l => l.id === u.location_id)?.name || "No home store"} · {u.pin ? "PIN set" : <span className="warn">No PIN</span>}</p>
                 </div>
-                {canManageUser(u) && <div style={{ display: "flex", gap: 8 }}>
-                  <button onClick={() => { setEditingUser({ ...u }); setUe(""); }} style={{ fontSize: 12, color: "#8B1A2B", background: "none", border: "none", cursor: "pointer" }}>Edit</button>
-                  {u.id !== user.id && <button onClick={() => remU(u.id)} style={{ fontSize: 12, color: "#c62828", background: "none", border: "none", cursor: "pointer" }}>Remove</button>}
+                {canManageUser(u) && <div className="hstack" style={{ flexWrap: "nowrap" }}>
+                  <Button variant="ghost" size="sm" onClick={() => { setEditingUser({ ...u }); setUe(""); }}>Edit</Button>
+                  {u.id !== user.id && <Button variant="ghost" size="sm" className="danger" onClick={() => remU(u.id)}>Remove</Button>}
                 </div>}
               </div>
             )}
-          </div>;
+          </Card>;
         })}
       </div>}
 
       {tab === "items" && <div>
-        <div style={{ background: "#fff", border: "1px solid #e8e8e8", borderRadius: 10, padding: "1rem", marginBottom: "1rem" }}>
-          <p style={{ fontSize: 13, fontWeight: 500, marginBottom: 10 }}>Add item</p>
-          <div style={{ marginBottom: 8 }}>
-            <input autoComplete="one-time-code" name="nofill" data-lpignore="true" data-1p-ignore="true" value={ni.name} onChange={e => setNi(f => ({ ...f, name: e.target.value }))} placeholder="Item name" style={inp} onKeyDown={e => e.key === "Enter" && addI()} />
-          </div>
-          <div style={{ marginBottom: 8 }}>
-            <p style={{ fontSize: 11, color: "#666", marginBottom: 4 }}>Parent item (optional — for shared inventory pools)</p>
-            <select value={ni.parent_id} onChange={e => setNi(f => ({ ...f, parent_id: e.target.value }))} style={inp}>
+        <Card style={{ marginBottom: 16 }}>
+          <p className="h2" style={{ marginBottom: 12 }}>Add item</p>
+          <Field label="Item name"><Input value={ni.name} onChange={e => setNi(f => ({ ...f, name: e.target.value }))} placeholder="Item name" onKeyDown={e => e.key === "Enter" && addI()} /></Field>
+          <Field label="Parent item" hint="Optional — for shared inventory pools">
+            <Select value={ni.parent_id} onChange={e => setNi(f => ({ ...f, parent_id: e.target.value }))}>
               <option value="">No parent — standalone item</option>
               {parentItems.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-            </select>
-          </div>
+            </Select>
+          </Field>
           <ItemLabelFields value={ni} onChange={ch => setNi(f => ({ ...f, ...ch }))} />
-          {ie && <p style={{ color: "#c62828", fontSize: 12, marginBottom: 8 }}>{ie}</p>}
-          <button onClick={addI} style={{ fontSize: 12, padding: "7px 14px", background: "#8B1A2B", color: "#fff", border: "none", borderRadius: 7, cursor: "pointer" }}>Add item</button>
-        </div>
+          {ie && <p className="xs danger" style={{ marginBottom: 10 }}>{ie}</p>}
+          <Button variant="primary" icon="plus" onClick={addI}>Add item</Button>
+        </Card>
 
         {grouped.map(({ parent, children }) => (
-          <div key={parent.id} style={{ background: "#fff", border: "1px solid #e8e8e8", borderRadius: 10, padding: "10px 14px", marginBottom: 8, opacity: parent.active === false ? 0.45 : 1 }}>
+          <Card key={parent.id} tight style={{ marginBottom: 8, opacity: parent.active === false ? 0.5 : 1 }}>
             {editingItem?.id === parent.id ? (
               <div>
-                <input autoComplete="one-time-code" name="nofill" data-lpignore="true" data-1p-ignore="true" value={editingItem.name} onChange={e => setEditingItem(f => ({ ...f, name: e.target.value }))} style={{ ...inp, marginBottom: 8 }} />
+                <Field label="Name"><Input value={editingItem.name} onChange={e => setEditingItem(f => ({ ...f, name: e.target.value }))} /></Field>
                 <ItemLabelFields value={editingItem} onChange={ch => setEditingItem(f => ({ ...f, ...ch }))} />
-                <div style={{ display: "flex", gap: 8 }}>
-                  <button onClick={saveEditItem} style={{ fontSize: 12, padding: "6px 14px", background: "#8B1A2B", color: "#fff", border: "none", borderRadius: 7, cursor: "pointer" }}>Save</button>
-                  <button onClick={() => setEditingItem(null)} style={{ fontSize: 12, padding: "6px 14px", background: "none", border: "1px solid #ddd", borderRadius: 7, cursor: "pointer" }}>Cancel</button>
+                <div className="hstack">
+                  <Button variant="primary" onClick={saveEditItem}>Save</Button>
+                  <Button onClick={() => setEditingItem(null)}>Cancel</Button>
                 </div>
               </div>
             ) : (
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
-                <div>
-                  <p style={{ fontSize: 13, fontWeight: children.length > 0 ? 600 : 400, margin: 0 }}>{parent.name}</p>
-                  {children.length > 0 && <p style={{ fontSize: 11, color: "#888", margin: "2px 0 0" }}>Shared pool</p>}
-                  <p style={{ fontSize: 11, color: "#999", margin: "2px 0 0" }}>{labelRuleText(parent)}</p>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+                <div style={{ minWidth: 0 }}>
+                  <p style={{ fontWeight: children.length > 0 ? 600 : 500 }}>{parent.name}</p>
+                  {children.length > 0 && <p className="xs muted">Shared pool</p>}
+                  <p className="xs faint">{labelRuleText(parent)}</p>
                 </div>
-                <div style={{ display: "flex", gap: 8 }}>
-                  <button onClick={() => setEditingItem({ ...parent })} style={{ fontSize: 12, color: "#8B1A2B", background: "none", border: "none", cursor: "pointer" }}>Edit</button>
-                  <button onClick={() => togI(parent.id, parent.active)} style={{ fontSize: 12, color: parent.active === false ? "#2e7d32" : "#888", background: "none", border: "none", cursor: "pointer" }}>{parent.active === false ? "Enable" : "Disable"}</button>
+                <div className="hstack" style={{ flexWrap: "nowrap" }}>
+                  <Button variant="ghost" size="sm" onClick={() => setEditingItem({ ...parent })}>Edit</Button>
+                  <Button variant="ghost" size="sm" className={parent.active === false ? "ok" : "muted"} onClick={() => togI(parent.id, parent.active)}>{parent.active === false ? "Enable" : "Disable"}</Button>
                 </div>
               </div>
             )}
-            {children.length > 0 && <div style={{ marginTop: 8, paddingTop: 8, borderTop: "1px dashed #eee" }}>
+            {children.length > 0 && <div style={{ marginTop: 8, paddingTop: 8, borderTop: "1px dashed var(--line)" }}>
               {children.map(child => (
-                <div key={child.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "3px 0", opacity: child.active === false ? 0.45 : 1 }}>
+                <div key={child.id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, padding: "4px 0", opacity: child.active === false ? 0.5 : 1 }}>
                   {editingItem?.id === child.id ? (
                     <div style={{ flex: 1 }}>
-                    <ItemLabelFields value={editingItem} onChange={ch => setEditingItem(f => ({ ...f, ...ch }))} />
-                    <div style={{ display: "flex", gap: 8, flex: 1 }}>
-                      <input autoComplete="one-time-code" name="nofill" data-lpignore="true" data-1p-ignore="true" value={editingItem.name} onChange={e => setEditingItem(f => ({ ...f, name: e.target.value }))} style={{ ...inp, flex: 1 }} />
-                      <select value={editingItem.parent_id || ""} onChange={e => setEditingItem(f => ({ ...f, parent_id: e.target.value || null }))} style={{ ...inp, flex: 1 }}>
-                        <option value="">No parent</option>
-                        {parentItems.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-                      </select>
-                      <button onClick={saveEditItem} style={{ fontSize: 12, padding: "4px 10px", background: "#8B1A2B", color: "#fff", border: "none", borderRadius: 7, cursor: "pointer", whiteSpace: "nowrap" }}>Save</button>
-                      <button onClick={() => setEditingItem(null)} style={{ fontSize: 12, padding: "4px 10px", background: "none", border: "1px solid #ddd", borderRadius: 7, cursor: "pointer" }}>Cancel</button>
-                    </div>
+                      <Field label="Name"><Input value={editingItem.name} onChange={e => setEditingItem(f => ({ ...f, name: e.target.value }))} /></Field>
+                      <Field label="Parent">
+                        <Select value={editingItem.parent_id || ""} onChange={e => setEditingItem(f => ({ ...f, parent_id: e.target.value || null }))}>
+                          <option value="">No parent</option>
+                          {parentItems.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                        </Select>
+                      </Field>
+                      <ItemLabelFields value={editingItem} onChange={ch => setEditingItem(f => ({ ...f, ...ch }))} />
+                      <div className="hstack">
+                        <Button variant="primary" size="sm" onClick={saveEditItem}>Save</Button>
+                        <Button size="sm" onClick={() => setEditingItem(null)}>Cancel</Button>
+                      </div>
                     </div>
                   ) : (
                     <>
-                      <span style={{ fontSize: 12, color: "#555" }}>↳ {child.name} <span style={{ fontSize: 10, color: "#aaa" }}>· {labelRuleText(child)}</span></span>
-                      <div style={{ display: "flex", gap: 8 }}>
-                        <button onClick={() => setEditingItem({ ...child })} style={{ fontSize: 11, color: "#8B1A2B", background: "none", border: "none", cursor: "pointer" }}>Edit</button>
-                        <button onClick={() => togI(child.id, child.active)} style={{ fontSize: 11, color: child.active === false ? "#2e7d32" : "#888", background: "none", border: "none", cursor: "pointer" }}>{child.active === false ? "Enable" : "Disable"}</button>
+                      <span className="small ellipsis">↳ {child.name} <span className="xs faint">· {labelRuleText(child)}</span></span>
+                      <div className="hstack" style={{ flexWrap: "nowrap" }}>
+                        <Button variant="ghost" size="sm" onClick={() => setEditingItem({ ...child })}>Edit</Button>
+                        <Button variant="ghost" size="sm" className={child.active === false ? "ok" : "muted"} onClick={() => togI(child.id, child.active)}>{child.active === false ? "Enable" : "Disable"}</Button>
                       </div>
                     </>
                   )}
                 </div>
               ))}
             </div>}
-          </div>
+          </Card>
         ))}
       </div>}
 
       {tab === "printers" && <div>
-        <p style={{ fontSize: 13, color: "#666", marginBottom: 14 }}>
+        <p className="small muted" style={{ marginBottom: 14 }}>
           Email is the default receipt. Turn on <b>Paper receipts</b> for a store to show the Print button on the order confirmation screen.
         </p>
         {LOCS.map(loc => {
@@ -1894,40 +1804,23 @@ function Admin({ users, refreshUsers, items, refreshItems, user, can, printerIps
             setPrinterSaving(s => ({ ...s, [loc.id]: false }));
           };
           const paper = !!paperOn[loc.id];
-          const togglePaper = async () => {
-            const next = !paper;
+          const togglePaper = async (next) => {
             setPaperOn(p => ({ ...p, [loc.id]: next }));
             const { error } = await supabase.from("printer_settings").upsert({ location_id: loc.id, paper_receipts_enabled: next }, { onConflict: "location_id" });
             if (error) { setPaperOn(p => ({ ...p, [loc.id]: paper })); alert("Could not save: " + error.message); }
           };
           return (
-            <div key={loc.id} style={{ background: "#fff", border: "1px solid #e8e8e8", borderRadius: 10, padding: "12px 16px", marginBottom: 8 }}>
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
-                <p style={{ fontSize: 13, fontWeight: 600, margin: 0 }}>{loc.name}</p>
-                <label style={{ display: "flex", alignItems: "center", gap: 8, fontSize: 12, color: paper ? "#2e7d32" : "#888", cursor: "pointer" }}>
-                  <span>Paper receipts {paper ? "ON" : "OFF"}</span>
-                  <span onClick={togglePaper} style={{ width: 38, height: 22, borderRadius: 11, background: paper ? "#2e7d32" : "#ccc", position: "relative", transition: "background .15s" }}>
-                    <span style={{ position: "absolute", top: 2, left: paper ? 18 : 2, width: 18, height: 18, borderRadius: "50%", background: "#fff", transition: "left .15s" }} />
-                  </span>
-                </label>
+            <Card key={loc.id} tight style={{ marginBottom: 8 }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 6 }}>
+                <p style={{ fontWeight: 600 }}>{loc.name}</p>
+                <Toggle on={paper} onChange={togglePaper} label={`Paper receipts ${paper ? "on" : "off"}`} />
               </div>
-              <div style={{ display: "flex", gap: 8, alignItems: "center", opacity: paper ? 1 : 0.5 }}>
-                <input autoComplete="one-time-code" name="nofill" data-lpignore="true" data-1p-ignore="true"
-                  value={edited}
-                  onChange={e => setPrinterEdits(prev => ({ ...prev, [loc.id]: e.target.value }))}
-                  placeholder="e.g. 192.168.4.200"
-                  style={{ ...inp, flex: 1, fontFamily: "monospace" }}
-                />
-                <button
-                  onClick={savePrinter}
-                  disabled={saving || edited === current}
-                  style={{ fontSize: 12, padding: "7px 14px", background: edited !== current ? "#8B1A2B" : "#ccc", color: "#fff", border: "none", borderRadius: 7, cursor: edited !== current ? "pointer" : "default", whiteSpace: "nowrap" }}
-                >
-                  {saving ? "Saving…" : "Save"}
-                </button>
+              <div className="hstack" style={{ flexWrap: "nowrap", opacity: paper ? 1 : 0.5 }}>
+                <Input mono value={edited} onChange={e => setPrinterEdits(prev => ({ ...prev, [loc.id]: e.target.value }))} placeholder="e.g. 192.168.4.200" style={{ flex: 1 }} />
+                <Button variant="primary" onClick={savePrinter} disabled={saving || edited === current}>{saving ? "Saving…" : "Save"}</Button>
               </div>
-              {current && <p style={{ fontSize: 11, color: "#2e7d32", margin: "6px 0 0" }}>✓ Connected to {current}</p>}
-            </div>
+              {current && <p className="xs muted" style={{ marginTop: 6 }}>Saved printer address: {current}</p>}
+            </Card>
           );
         })}
       </div>}

@@ -134,6 +134,7 @@ function buildEmailHtml(order, orderItems, items, loc) {
 
 </table>
 <div style="font-size:11px;color:#aaa;margin-top:14px;text-align:center;">Iavarone Bros. · ${esc(loc?.address || "")}, ${esc(loc?.city || "")}</div>
+<div style="font-size:10px;color:#bbb;margin-top:8px;text-align:center;">Made by <a href="https://orderhq.app" style="color:#999;text-decoration:none;font-weight:bold;">OrderHQ</a></div>
 </td></tr></table>
 </body></html>`;
 }
@@ -212,6 +213,7 @@ function buildReceiptPdf(order, orderItems, items, loc) {
     doc.fontSize(8).fillColor(GRAY).font("Helvetica")
       .text(`Questions? Call ${loc?.phone || ""}`, M, y, { align: "center", width: W });
     doc.fontSize(7).fillColor(LIGHT).text(`Order taken by ${takenByInitials(order.taken_by)}`, M, doc.y + 3, { align: "center", width: W });
+    doc.fontSize(6).fillColor("#bbbbbb").text("Made by OrderHQ", M, doc.y + 10, { align: "center", width: W, link: "https://orderhq.app" });
 
     doc.end();
   });
