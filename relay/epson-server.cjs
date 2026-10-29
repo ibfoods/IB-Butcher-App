@@ -144,6 +144,20 @@ const ESC = 0x1b;
 const GS = 0x1d;
 const LF = 0x0a;
 
+const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+function orderNumberText(order) {
+  const seq = order.order_seq ?? order.daily_number;
+  const m = parseInt(String(order.pickup_date || "").slice(5, 7), 10);
+  return `${MONTHS[m - 1] || ""} #${seq ?? ""}`.trim();
+}
+function qtyText(item, qty) {
+  const sb = (item && item.sold_by) || "each";
+  const n = Number(qty); const q = Number.isInteger(n) ? String(n) : String(parseFloat(n.toFixed(2)));
+  if (sb === "lb") return `${q} lb`;
+  if (sb === "person") return n === 1 ? "1 person" : `${q} people`;
+  return `x${q}`;
+}
+
 function buildReceiptBytes({ order, orderItems, items, loc }) {
   const bytes = [];
   const push = (...vals) => bytes.push(...vals);
@@ -178,12 +192,12 @@ function buildReceiptBytes({ order, orderItems, items, loc }) {
   nl();
   line();
 
-  // Daily number
-  str("DAILY ORDER #");
+  // Monthly order number
+  str("ORDER NUMBER");
   nl();
   push(ESC, 0x45, 0x01);
   push(GS, 0x21, 0x22); // triple-ish size
-  str(String(order.daily_number));
+  str(orderNumberText(order));
   nl();
   push(GS, 0x21, 0x00);
   push(ESC, 0x45, 0x00);
@@ -205,10 +219,6 @@ function buildReceiptBytes({ order, orderItems, items, loc }) {
   nl();
   str(`${fmtDate(order.pickup_date)} at ${fmtTime(order.pickup_time)}`);
   nl();
-  str("INVOICE");
-  nl();
-  str(`#${order.invoice_number}`);
-  nl();
   line();
 
   // Items
@@ -217,10 +227,11 @@ function buildReceiptBytes({ order, orderItems, items, loc }) {
   orderItems.forEach((li) => {
     const item = items.find((i) => i.id === li.item_id);
     const name = item?.name || "";
-    const qty = `x${li.quantity}`;
+    const qty = qtyText(item, li.quantity);
     const pad = 32 - name.length - qty.length;
     str(`${name}${" ".repeat(Math.max(1, pad))}${qty}`);
     nl();
+    if (li.note) { str(`  ${li.note}`); nl(); }
   });
 
   if (order.notes) {

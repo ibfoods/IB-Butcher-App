@@ -59,12 +59,15 @@ export function labelCountFor(item, qty) {
 }
 
 function amountText(item, qty) {
-  const q = Number(qty) || 1
+  const n = Number(qty) || 1
+  const q = Number.isInteger(n) ? String(n) : String(parseFloat(n.toFixed(2)))
   const sb = item?.sold_by || 'each'
   if (sb === 'lb') return `${q} LB`
-  if (sb === 'person') return q === 1 ? '1 PERSON' : `${q} PEOPLE`
-  return q > 1 ? `QTY ${q}` : ''
+  if (sb === 'person') return n === 1 ? '1 PERSON' : `${q} PEOPLE`
+  return n > 1 ? `QTY ${q}` : ''
 }
+const MONTHS = ['JAN','FEB','MAR','APR','MAY','JUN','JUL','AUG','SEP','OCT','NOV','DEC']
+const monthOf = (d) => MONTHS[parseInt(String(d || '').slice(5, 7), 10) - 1] || ''
 
 // Expand orders into one payload per physical label.
 // fmt = { date: fn(yyyy-mm-dd), time: fn(hh:mm) }
@@ -72,16 +75,20 @@ export function buildLabels(orders, orderItemsMap, items, locs, fmt) {
   const out = []
   for (const o of orders) {
     const loc = locs.find(l => l.id === o.location_id)
+    let first = true
     for (const li of (orderItemsMap[o.id] || [])) {
       const item = items.find(i => i.id === li.item_id)
       const n = labelCountFor(item, li.quantity)
+      // Item note goes on that item's label(s); the order-level note only on the
+      // first label of the order so it isn't repeated on every piece.
       const base = {
         customer: o.customer_name || '',
-        dailyNumber: o.daily_number ?? '',
+        month: monthOf(o.pickup_date),
+        dailyNumber: o.order_seq ?? o.daily_number ?? '',
         itemName: item?.name || '',
-        note: o.notes || '',
+        note: li.note || '',
         pickup: `${fmt.date(o.pickup_date)} ${fmt.time(o.pickup_time)}`.trim(),
-        invoice: `#${o.invoice_number ?? ''}`,
+        phone: o.customer_phone || '',
         location: loc?.name || '',
       }
       if (n > 1) {
@@ -89,6 +96,9 @@ export function buildLabels(orders, orderItemsMap, items, locs, fmt) {
       } else {
         out.push({ ...base, tag: amountText(item, li.quantity) })
       }
+      // Order-level note rides on the very first label of the order only.
+      if (first && o.notes) { const f = out[out.length - (n > 1 ? n : 1)]; f.note = [f.note, o.notes].filter(Boolean).join(' · ') }
+      first = false
     }
   }
   return out
@@ -189,8 +199,8 @@ export function zplForLabel(p) {
   const capY = valY - pt(7.5) - dots(0.03)
   const rule2Y = capY - dots(0.06)
   // Pickup (date + time) is the longest value, so it gets the widest column.
-  const shares = [0.42, 0.22, 0.36]
-  const cols = [['PICKUP', p.pickup], ['INVOICE', p.invoice], ['LOCATION', p.location]]
+  const shares = [0.38, 0.34, 0.28]
+  const cols = [['PICKUP', p.pickup], ['PHONE', p.phone], ['LOCATION', p.location]]
   let colX = M
   cols.forEach(([cap, val], i) => {
     const colW = Math.floor(CW * shares[i])
@@ -214,7 +224,7 @@ export function zplForLabel(p) {
   const boxH = dots(0.72)
   const boxX = R - boxW
   z.push(`^FO${boxX},${topY}^GB${boxW},${boxH},4^FS`)
-  textC(boxX, topY + dots(0.06), boxW, 7, 'ORDER', true)
+  textC(boxX, topY + dots(0.06), boxW, 7, p.month ? `${p.month} ORDER` : 'ORDER', true)
   textC(boxX, topY + dots(0.06) + pt(7) + dots(0.04), boxW, numPt, num, true)
 
   // CUSTOMER block, centered between logo and box

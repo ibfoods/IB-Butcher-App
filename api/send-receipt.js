@@ -1,24 +1,7 @@
-import { google } from "googleapis";
-import { createClient } from "@supabase/supabase-js";
 import PDFDocument from "pdfkit";
 import { WORDMARK_B64, WORDMARK_BUFFER, WORDMARK_W, WORDMARK_H } from "./_logo.js";
-
-const CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
-const CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
-const REDIRECT_URI = "https://butcherorders.ibfoods.com/api/auth/callback";
-
-const supabase = createClient(
-  process.env.SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_ROLE_KEY
-);
-
-const LOCATION_EMAIL = {
-  woodbury:   "Woodbury@ibfoods.com",
-  wantagh:    "Wantagh@ibfoods.com",
-  gardencity: "Gardencity@ibfoods.com",
-  maspeth:    "Maspeth@ibfoods.com",
-  nhp:        "Newhydepark@ibfoods.com",
-};
+import { gmailFor, b64lines } from "./_gmail.js";
+import { orderNumberText, orderMonthText, orderSeqText, qtyText } from "./_order.js";
 
 const RED = "#900027";
 
@@ -53,8 +36,8 @@ function buildEmailHtml(order, orderItems, items, loc) {
   const itemRows = (orderItems || []).map(li => {
     const item = (items || []).find(i => i.id === li.item_id);
     return `<tr>
-      <td style="padding:10px 0;border-bottom:1px solid #eee;font-size:14px;color:#222;">${esc(item?.name || "")}</td>
-      <td style="padding:10px 0;border-bottom:1px solid #eee;font-size:14px;color:#666;text-align:right;white-space:nowrap;">× ${li.quantity}</td>
+      <td style="padding:10px 0;border-bottom:1px solid #eee;font-size:14px;color:#222;">${esc(item?.name || "")}${li.note ? `<div style="font-size:12px;color:#777;margin-top:2px;">${esc(li.note)}</div>` : ""}</td>
+      <td style="padding:10px 0;border-bottom:1px solid #eee;font-size:14px;color:#666;text-align:right;white-space:nowrap;vertical-align:top;">${esc(qtyText(item, li.quantity))}</td>
     </tr>`;
   }).join("");
 
@@ -87,9 +70,9 @@ function buildEmailHtml(order, orderItems, items, loc) {
   <tr><td style="padding:12px 24px;">
     <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#faf5f6;border:1px solid #efe1e4;border-radius:10px;">
       <tr><td style="padding:16px;text-align:center;">
-        <div style="font-size:10px;letter-spacing:1.5px;text-transform:uppercase;color:${RED};">Daily Order Number</div>
-        <div style="font-size:48px;font-weight:bold;color:${RED};line-height:1.1;margin-top:2px;">${esc(order.daily_number)}</div>
-        <div style="font-size:12px;color:#888;margin-top:4px;">Invoice #${esc(order.invoice_number)}</div>
+        <div style="font-size:10px;letter-spacing:1.5px;text-transform:uppercase;color:${RED};">Your order number</div>
+        <div style="font-size:48px;font-weight:bold;color:${RED};line-height:1.1;margin-top:2px;">${esc(orderNumberText(order))}</div>
+        <div style="font-size:12px;color:#888;margin-top:4px;">${esc(loc?.name || "")} · pickup ${esc(fmtDate(order.pickup_date))}</div>
       </td></tr>
     </table>
   </td></tr>
@@ -165,11 +148,11 @@ function buildReceiptPdf(order, orderItems, items, loc) {
     let y = 22 + lh + 44;
 
     // Order number block
-    label("Daily order #", y, { align: "center" });
+    label(`${orderMonthText(order)} order #`, y, { align: "center" });
     y += 11;
-    doc.fontSize(40).fillColor(RED).font("Helvetica-Bold").text(String(order.daily_number), M, y, { align: "center", width: W });
+    doc.fontSize(40).fillColor(RED).font("Helvetica-Bold").text(orderSeqText(order), M, y, { align: "center", width: W });
     y = doc.y + 2;
-    doc.fontSize(8).fillColor(GRAY).font("Helvetica").text(`Invoice #${order.invoice_number}`, M, y, { align: "center", width: W });
+    doc.fontSize(8).fillColor(GRAY).font("Helvetica").text(`${loc?.name || ""} · pickup ${fmtDate(order.pickup_date)}`, M, y, { align: "center", width: W });
     y = doc.y + 10;
     dash(y); y += 12;
 
@@ -193,8 +176,9 @@ function buildReceiptPdf(order, orderItems, items, loc) {
     (orderItems || []).forEach(li => {
       const item = (items || []).find(i => i.id === li.item_id);
       if (!item) return;
-      doc.fontSize(10).fillColor(INK).font("Helvetica-Bold").text(item.name, M, y, { width: W - 40 });
-      doc.fontSize(10).fillColor(GRAY).font("Helvetica").text(`× ${li.quantity}`, pageW - M - 36, y, { width: 36, align: "right" });
+      doc.fontSize(10).fillColor(INK).font("Helvetica-Bold").text(item.name, M, y, { width: W - 52 });
+      doc.fontSize(10).fillColor(GRAY).font("Helvetica").text(qtyText(item, li.quantity), pageW - M - 48, y, { width: 48, align: "right" });
+      if (li.note) { doc.fontSize(8).fillColor(GRAY).font("Helvetica").text(li.note, M, doc.y + 1, { width: W - 52 }); }
       y = doc.y + 3;
       doc.moveTo(M, y).lineTo(pageW - M, y).strokeColor("#eeeeee").lineWidth(0.5).stroke().lineWidth(1);
       y += 6;
@@ -223,7 +207,7 @@ function buildReceiptPdf(order, orderItems, items, loc) {
 function makeRawEmail({ from, to, subject, html, pdfBuffer, pdfFilename }) {
   const mixed = "mixed_" + Date.now();
   const related = "related_" + Date.now();
-  const b64 = (buf) => buf.toString("base64").replace(/(.{76})/g, "$1\r\n");
+  const b64 = b64lines;
 
   const lines = [
     `From: Iavarone Bros. <${from}>`,
@@ -275,46 +259,20 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: "Missing required fields" });
   }
 
-  const { data: tokenRow, error: tokenError } = await supabase
-    .from("gmail_tokens")
-    .select("*")
-    .eq("location_id", locationId)
-    .maybeSingle();
-
-  if (tokenError || !tokenRow) {
-    return res.status(400).json({ error: `Gmail not connected for location: ${locationId}. Please connect Gmail in Admin settings.` });
-  }
-
-  const fromEmail = LOCATION_EMAIL[locationId];
-  if (!fromEmail) {
-    return res.status(400).json({ error: `Unknown location: ${locationId}` });
-  }
+  let gm;
+  try { gm = await gmailFor(locationId); }
+  catch (e) { return res.status(400).json({ error: e.message }); }
 
   try {
-    const oauth2Client = new google.auth.OAuth2(CLIENT_ID, CLIENT_SECRET, REDIRECT_URI);
-    oauth2Client.setCredentials({
-      access_token: tokenRow.access_token,
-      refresh_token: tokenRow.refresh_token,
-      expiry_date: tokenRow.expiry_date,
-    });
-
-    oauth2Client.on("tokens", async (tokens) => {
-      await supabase.from("gmail_tokens").update({
-        access_token: tokens.access_token,
-        expiry_date: tokens.expiry_date,
-        updated_at: new Date().toISOString(),
-      }).eq("location_id", locationId);
-    });
-
-    const gmail = google.gmail({ version: "v1", auth: oauth2Client });
+    const { gmail, from: fromEmail } = gm;
     const html = buildEmailHtml(order, orderItems, items, loc);
     const pdfBuffer = await buildReceiptPdf(order, orderItems, items, loc);
-    const pdfFilename = `IB-Order-${order.invoice_number}.pdf`;
+    const pdfFilename = `IB-Order-${(loc?.name || locationId).replace(/\s+/g, "")}-${orderNumberText(order).replace(/[\s#]/g, "")}.pdf`;
 
     const raw = makeRawEmail({
       from: fromEmail,
       to,
-      subject: `Your Iavarone Bros. order #${order.daily_number} — pickup ${fmtDateLong(order.pickup_date)} at ${fmtTime(order.pickup_time)}`,
+      subject: `Your Iavarone Bros. order ${orderNumberText(order)} — pickup ${fmtDateLong(order.pickup_date)} at ${fmtTime(order.pickup_time)}`,
       html,
       pdfBuffer,
       pdfFilename,

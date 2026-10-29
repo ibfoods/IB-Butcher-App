@@ -1,8 +1,46 @@
 # IB Butcher App — Project Knowledge
 
-_Last updated: October 16, 2026_
+_Last updated: October 29, 2026_
 
-## Start here — next session (set Oct 16, 2026)
+## Start here — next session (set Oct 29, 2026)
+
+**Branch `ui-foundation` holds the full UI cleanup + ordering rework. NOT merged.** Mike reviews
+on the Vercel preview, then merge to `main`. Restore point: branch `backup/pre-ui-foundation-2026-10-29`
+(= old main `e4b6228`). The Supabase migration (`sql/2026-10-29_ordering_rework.sql`) is already
+applied to the live DB and is additive — old code still works against it.
+
+What landed (see `claude/UI-Cleanup-Proposal-2026-10-29.md` in the Claude project for the spec):
+- **Tokens + components** (`src/App.css`, `src/ui.jsx`): one brand red `#900027`, 15px body,
+  44px tap targets, inline SVG icons (no emoji). `App.css` was never imported before — it is now.
+- **Item picker** (`src/ItemPicker.jsx`): category → product → Plain/Oven Ready → qty + note.
+  Driven by `items.category` / `items.short_name`; pools never appear as a line. Decimal qty for
+  `sold_by = lb`. Sold-out pills disabled for clerks; managers can pick them.
+- **Stock enforcement**: fresh inventory read at submit; `items.tracked` decides whether a pool
+  blocks. Clerk → error; manager → confirm → order saved with `stock_override`, pool goes negative
+  ("Oversold by N" in Inventory), `/api/notify-stock` emails `printer_settings.alert_email`.
+- **Monthly order number**: `orders.order_seq` from `next_order_seq(location, pickup_date)`
+  (counter table `order_counters`, row-locked, keyed on pickup month). Shown as "Nov #12"
+  (`src/orderFmt.js`, `api/_order.js`). Editing pickup month or store renumbers (with confirm).
+  `daily_number` is kept equal to `order_seq` for old code paths; `invoice_number` still
+  assigned but shown nowhere (only under "Details" as "Ref").
+- **Mark complete removed** — status is pending / cancelled only.
+- **Item notes** (`order_items.note`): picker, modal, email/PDF/thermal receipts, production
+  report, and the label (item note on its own label; order note on the first label only).
+- **Units everywhere**: `qtyText()` → "4 lb" / "× 4" / "4 people". Popularity report groups
+  by unit. Production report leads with quantity.
+- **Edit order now adjusts inventory** by the delta (it never did before).
+- **Detail modal rebuilt**; nav has a filled **New order** button; Admin → **Store settings**
+  (paper toggle, alert email, Test print via the relay); Admin → Items has pill label, category,
+  counted toggle. Printer-IP field removed (relay uses Vercel env vars).
+- **RLS fix**: `printer_settings` only allowed `authenticated`; the app is `anon`, so the paper
+  toggle/alert email could never save. Policy now matches the other tables.
+- "Made by OrderHQ" on login + receipt footers. `public/brand/orderhq-wordmark.svg`.
+
+Not verified on hardware: the Zebra label footer now reads PICKUP / PHONE / LOCATION and the
+box caption is "NOV ORDER" — test-print one label. Thermal receipt relay (`relay/epson-server.cjs`)
+changed the same way; the relay on the Woodbury PC must be updated from the repo.
+
+## Previous start-here (Oct 16, 2026)
 
 **Decision: email-only receipts for now.** Paper/thermal printing is on hold.
 1. **Email receipt design pass** (top priority). Send a sample receipt to Mike's inbox first so

@@ -2,6 +2,8 @@ import { useState, useEffect, useCallback, useMemo } from "react";
 import { supabase } from "./supabase";
 import { findZebraPrinter, printZpl, buildLabels, zplForLabels } from "./zebraPrint";
 import { Button, Card, Pill, Chip, Toggle, Field, Input, Select, Textarea, PasswordInput, Banner, Loading, Empty, Modal, Icon, MadeBy, cx } from "./ui";
+import ItemPicker, { poolFor } from "./ItemPicker";
+import { monthOf, ymOf, orderSeq, orderNumberText, qtyText, qtyPrefix, lineName } from "./orderFmt";
 
 const LOCS = [
   { id: "nhp", name: "New Hyde Park", address: "1538 Union Turnpike, Lake Success Center", city: "New Hyde Park, NY 11040", phone: "(516) 488-5600" },
@@ -127,9 +129,9 @@ function printReceiptBrowser(order, orderItems, items, locs) {
   const takenBy = takenByInitials(order.taken_by);
   const itemLines = orderItems.map(li => {
     const item = items.find(i => i.id === li.item_id);
-    return `<div style="padding:4px 0;border-bottom:1px dotted #ddd;"><span style="font-weight:bold;font-size:13px;">${item?.name || ""}</span><span style="float:right;color:#666;font-size:12px;">x${li.quantity}</span></div>`;
+    return `<div style="padding:4px 0;border-bottom:1px dotted #ddd;"><span style="font-weight:bold;font-size:13px;">${item?.name || ""}</span><span style="float:right;color:#666;font-size:12px;">${qtyText(item, li.quantity)}</span>${li.note ? `<div style="font-size:11px;color:#666;">${li.note}</div>` : ""}</div>`;
   }).join("");
-  const html = `<!DOCTYPE html><html><head><title>Order #${order.invoice_number}</title><style>
+  const html = `<!DOCTYPE html><html><head><title>Order ${orderNumberText(order)}</title><style>
     body{font-family:Arial,sans-serif;font-size:12px;padding:20px;max-width:300px;margin:0 auto}
     h2{font-size:17px;text-align:center;letter-spacing:1px;margin:0 0 3px}
     .c{text-align:center}.s{font-size:10px;color:#666;text-align:center}
@@ -141,12 +143,11 @@ function printReceiptBrowser(order, orderItems, items, locs) {
     <h2>IAVARONE BROS.</h2>
     <p class="s">${loc?.address}<br>${loc?.city}<br>${loc?.phone}</p>
     <div class="d"></div>
-    <p class="lbl">Daily order #</p><p class="big">${order.daily_number}</p>
+    <p class="lbl">${monthOf(order.pickup_date)} order #</p><p class="big">${orderSeq(order)}</p>
     <div class="d"></div>
     <p class="lbl">Customer</p><p class="val">${order.customer_name}</p>
     <p class="lbl">Phone</p><p>${order.customer_phone}</p>
     <p class="lbl">Pickup</p><p class="val">${fmtDate(order.pickup_date)} at ${fmtTime(order.pickup_time)}</p>
-    <p class="lbl">Invoice</p><p>#${order.invoice_number}</p>
     <div class="d"></div>
     <p class="lbl">Items</p>${itemLines}
     ${order.notes ? `<div class="d"></div><p class="lbl">Notes</p><p>${order.notes}</p>` : ""}
@@ -181,7 +182,7 @@ function labelHTML(labels) {
             <div class="customer">${htmlEsc(p.customer)}</div>
           </div>
           <div class="order-box">
-            <div class="order-lbl">ORDER</div>
+            <div class="order-lbl">${htmlEsc(p.month ? p.month + " ORDER" : "ORDER")}</div>
             <div class="daily-num">${htmlEsc(p.dailyNumber)}</div>
           </div>
         </div>
@@ -192,7 +193,7 @@ function labelHTML(labels) {
         </div>
         <div class="footer">
           <div class="footer-col"><div class="footer-lbl">PICKUP</div><div class="footer-val">${htmlEsc(p.pickup)}</div></div>
-          <div class="footer-col"><div class="footer-lbl">INVOICE</div><div class="footer-val">${htmlEsc(p.invoice)}</div></div>
+          <div class="footer-col"><div class="footer-lbl">PHONE</div><div class="footer-val">${htmlEsc(p.phone)}</div></div>
           <div class="footer-col"><div class="footer-lbl">LOCATION</div><div class="footer-val">${htmlEsc(p.location)}</div></div>
         </div>
       </div></div>`).join("");
@@ -340,6 +341,7 @@ export default function App() {
   const [customers, setCustomers] = useState([]);
   const [printerIps, setPrinterIps] = useState({});
   const [paperOn, setPaperOn] = useState({});
+  const [alertEmails, setAlertEmails] = useState({});
   const [activeLoc, setActiveLoc] = useState("");
   const [ready, setReady] = useState(false);
   const [loadError, setLoadError] = useState("");
@@ -366,10 +368,11 @@ export default function App() {
       (i.data || []).forEach(r => { invMap[`${r.location_id}_${r.item_id}`] = r.stock; });
       setInv(invMap);
       setItems(it.data || []);
-      const ipMap = {}; const paperMap = {};
-      (pr.data || []).forEach(r => { if (r.printer_ip) ipMap[r.location_id] = r.printer_ip; paperMap[r.location_id] = !!r.paper_receipts_enabled; });
+      const ipMap = {}; const paperMap = {}; const alertMap = {};
+      (pr.data || []).forEach(r => { if (r.printer_ip) ipMap[r.location_id] = r.printer_ip; paperMap[r.location_id] = !!r.paper_receipts_enabled; if (r.alert_email) alertMap[r.location_id] = r.alert_email; });
       setPrinterIps(ipMap);
       setPaperOn(paperMap);
+      setAlertEmails(alertMap);
       setReady(true);
     } catch (e) {
       console.error("Initial load failed", e);
@@ -432,11 +435,11 @@ export default function App() {
       <Nav user={user} loc={loc} activeLoc={activeLoc} setActiveLoc={setActiveLoc} view={view} setView={setView} can={can} onLogout={logout} />
       <div className="shell">
         {view === "orders" && <Orders key={activeLoc} activeLoc={activeLoc} user={user} orders={orders} orderItemsMap={orderItemsMap} refresh={refreshOrders} inv={inv} refreshInv={refreshInv} items={items} can={can} paperOn={paperOn} />}
-        {view === "new_order" && <NewOrder key={activeLoc} activeLoc={activeLoc} user={user} orders={orders} refresh={refreshOrders} inv={inv} refreshInv={refreshInv} items={items} setView={setView} paperOn={paperOn} customers={customers} refreshCustomers={refreshCustomers} />}
+        {view === "new_order" && <NewOrder key={activeLoc} activeLoc={activeLoc} user={user} orders={orders} refresh={refreshOrders} inv={inv} refreshInv={refreshInv} items={items} setView={setView} paperOn={paperOn} customers={customers} refreshCustomers={refreshCustomers} can={can} />}
         {view === "customers" && <Customers customers={customers} refreshCustomers={refreshCustomers} orders={orders} orderItemsMap={orderItemsMap} items={items} activeLoc={activeLoc} />}
         {view === "reports" && <Reports key={activeLoc} activeLoc={activeLoc} orders={orders} orderItemsMap={orderItemsMap} items={items} user={user} can={can} />}
         {view === "inventory" && can("manager") && <Inventory activeLoc={activeLoc} can={can} inv={inv} refreshInv={refreshInv} items={items} user={user} />}
-        {view === "admin" && can("manager") && <Admin users={users} refreshUsers={refreshUsers} items={items} refreshItems={refreshItems} user={user} can={can} printerIps={printerIps} setPrinterIps={setPrinterIps} paperOn={paperOn} setPaperOn={setPaperOn} />}
+        {view === "admin" && can("manager") && <Admin users={users} refreshUsers={refreshUsers} items={items} refreshItems={refreshItems} user={user} can={can} paperOn={paperOn} setPaperOn={setPaperOn} alertEmails={alertEmails} setAlertEmails={setAlertEmails} />}
       </div>
     </div>
   );
@@ -524,7 +527,6 @@ function Nav({ user, loc, activeLoc, setActiveLoc, view, setView, can, onLogout 
   const canSwitch = can("manager");
   const tabs = [
     { id: "orders", label: "Orders" },
-    { id: "new_order", label: "New order" },
     { id: "customers", label: "Customers" },
     { id: "reports", label: "Reports" },
     ...(can("manager") ? [{ id: "inventory", label: "Inventory" }] : []),
@@ -553,8 +555,9 @@ function Nav({ user, loc, activeLoc, setActiveLoc, view, setView, can, onLogout 
           </div>
           <Button variant="secondary" size="sm" onClick={onLogout}>Sign out</Button>
         </div>
-        <div className="nav-tabs">
+        <div className="nav-tabs" style={{ alignItems: "center" }}>
           {tabs.map(t => <button key={t.id} type="button" className={cx("tab", view === t.id && "on")} onClick={() => setView(t.id)}>{t.label}</button>)}
+          <Button variant={view === "new_order" ? "primary" : "outline"} size="sm" icon="plus" className="nav-new" onClick={() => setView("new_order")}>New order</Button>
         </div>
       </div>
     </div>
@@ -574,9 +577,12 @@ function Orders({ activeLoc, user, orders, orderItemsMap, refresh, inv, refreshI
   const [detail, setDetail] = useState(null);
   const [editing, setEditing] = useState(false);
   const [editForm, setEditForm] = useState(null);
+  const [editErr, setEditErr] = useState("");
+  const [saving, setSaving] = useState(false);
   const [detailEmail, setDetailEmail] = useState("");
   const [detailEmailSending, setDetailEmailSending] = useState(false);
   const [detailEmailStatus, setDetailEmailStatus] = useState("");
+  const [showMeta, setShowMeta] = useState(false);
 
   const searching = search.trim().length > 0;
   const filtered = orders.filter(o => {
@@ -584,19 +590,22 @@ function Orders({ activeLoc, user, orders, orderItemsMap, refresh, inv, refreshI
     if (lf && o.location_id !== lf) return false;
     if (searching) {
       const q = search.trim().toLowerCase(); const qd = q.replace(/\D/g, "");
-      return (o.customer_name || "").toLowerCase().includes(q) || String(o.invoice_number).includes(q) || (qd.length >= 3 && (o.customer_phone || "").replace(/\D/g, "").includes(qd));
+      const numQ = q.replace(/^#/, "");
+      return (o.customer_name || "").toLowerCase().includes(q)
+        || (/^\d+$/.test(numQ) && String(orderSeq(o)) === numQ)
+        || (qd.length >= 3 && (o.customer_phone || "").replace(/\D/g, "").includes(qd));
     }
     if (range === "upcoming") return o.pickup_date >= today;
     if (df) return o.pickup_date === df;
     return true;
   }).sort((a, b) => {
-    if (searching || range === "all") return b.invoice_number - a.invoice_number;
-    return (a.pickup_date || "").localeCompare(b.pickup_date || "") || (a.pickup_time || "").localeCompare(b.pickup_time || "") || a.daily_number - b.daily_number;
+    if (searching || range === "all") return (b.pickup_date || "").localeCompare(a.pickup_date || "") || (b.created_at || "").localeCompare(a.created_at || "");
+    return (a.pickup_date || "").localeCompare(b.pickup_date || "") || (a.pickup_time || "").localeCompare(b.pickup_time || "") || orderSeq(a) - orderSeq(b);
   });
   const groupByDate = !searching && (range === "upcoming" || range === "all");
-  const statusCounts = filtered.reduce((m, o) => { m[o.status] = (m[o.status] || 0) + 1; return m; }, {});
+  const cancelledCount = filtered.filter(o => o.status === "cancelled").length;
 
-  const openDetail = (o) => { setDetail(o); setEditing(false); setEditForm(null); setDetailEmail(o.customer_email || ""); setDetailEmailStatus(""); };
+  const openDetail = (o) => { setDetail(o); setEditing(false); setEditForm(null); setEditErr(""); setShowMeta(false); setDetailEmail(o.customer_email || ""); setDetailEmailStatus(""); };
   const closeDetail = () => { setDetail(null); setEditing(false); };
 
   const startEdit = (o) => {
@@ -611,50 +620,86 @@ function Orders({ activeLoc, user, orders, orderItemsMap, refresh, inv, refreshI
       pickup_time: o.pickup_time,
       notes: o.notes || "",
       location_id: o.location_id,
-      lineItems: [...(orderItemsMap[o.id] || []).map(li => ({ item_id: li.item_id, quantity: li.quantity }))],
+      lineItems: (orderItemsMap[o.id] || []).map(li => ({ item_id: li.item_id, quantity: Number(li.quantity), note: li.note || "" })),
     });
+    setEditErr("");
     setEditing(true);
   };
 
+  // Pool usage of a set of lines: { poolId: qty }
+  const poolNeed = (lines) => {
+    const m = {};
+    for (const li of lines) { const it = items.find(i => i.id === li.item_id); const pool = poolFor(it, items); if (!pool?.tracked) continue; m[pool.id] = (m[pool.id] || 0) + (Number(li.quantity) || 0); }
+    return m;
+  };
+  const applyPoolDelta = async (locationId, delta) => {
+    for (const [poolId, d] of Object.entries(delta)) {
+      if (!d) continue;
+      const { data: existing } = await supabase.from("inventory").select("*").eq("location_id", locationId).eq("item_id", poolId).maybeSingle();
+      if (existing) await supabase.from("inventory").update({ stock: existing.stock - d }).eq("id", existing.id);
+    }
+  };
+
   const saveEdit = async () => {
-    const customerName = `${editForm.firstName.trim()} ${editForm.lastName.trim()}`.trim();
-    await supabase.from("orders").update({
-      customer_name: customerName,
-      customer_phone: editForm.customer_phone,
-      customer_email: editForm.customer_email || null,
-      pickup_date: editForm.pickup_date,
-      pickup_time: editForm.pickup_time,
-      notes: editForm.notes,
-      location_id: editForm.location_id,
-    }).eq("id", detail.id);
-    await supabase.from("order_items").delete().eq("order_id", detail.id);
-    await supabase.from("order_items").insert(
-      editForm.lineItems.map(li => ({ order_id: detail.id, item_id: li.item_id, quantity: parseInt(li.quantity) || 1 }))
-    );
-    await refresh();
-    setEditing(false);
-    setDetail(null);
+    if (!editForm.lineItems.length) { setEditErr("Add at least one item."); return; }
+    setSaving(true); setEditErr("");
+    try {
+      const customerName = `${editForm.firstName.trim()} ${editForm.lastName.trim()}`.trim();
+      const oldLines = (orderItemsMap[detail.id] || []);
+      const movedStore = editForm.location_id !== detail.location_id;
+      const movedMonth = ymOf(editForm.pickup_date) !== ymOf(detail.pickup_date);
+      let seq = detail.order_seq ?? detail.daily_number;
+      if (movedStore || movedMonth) {
+        const msg = movedStore
+          ? `Moving this order to ${LOCS.find(l => l.id === editForm.location_id)?.name} gives it a new order number. Continue?`
+          : `Moving pickup to ${monthOf(editForm.pickup_date)} gives this order a new ${monthOf(editForm.pickup_date)} number (it is currently ${orderNumberText(detail)}). Continue?`;
+        if (!window.confirm(msg)) { setSaving(false); return; }
+        const { data: s, error: se } = await supabase.rpc("next_order_seq", { p_location: editForm.location_id, p_pickup_date: editForm.pickup_date });
+        if (se || !s) throw new Error(se?.message || "Could not get a new order number.");
+        seq = s;
+      }
+      // Stock: new minus old, per pool (only when the store is unchanged; a move returns old and takes new)
+      const oldNeed = poolNeed(oldLines), newNeed = poolNeed(editForm.lineItems);
+      if (movedStore) {
+        await applyPoolDelta(detail.location_id, Object.fromEntries(Object.entries(oldNeed).map(([k, v]) => [k, -v])));
+        await applyPoolDelta(editForm.location_id, newNeed);
+      } else {
+        const delta = {}; for (const k of new Set([...Object.keys(oldNeed), ...Object.keys(newNeed)])) delta[k] = (newNeed[k] || 0) - (oldNeed[k] || 0);
+        await applyPoolDelta(detail.location_id, delta);
+      }
+      const { error } = await supabase.from("orders").update({
+        customer_name: customerName,
+        customer_phone: editForm.customer_phone,
+        customer_email: editForm.customer_email || null,
+        pickup_date: editForm.pickup_date,
+        pickup_time: editForm.pickup_time,
+        notes: editForm.notes,
+        location_id: editForm.location_id,
+        order_seq: seq,
+        daily_number: seq,
+      }).eq("id", detail.id);
+      if (error) throw new Error(error.message);
+      await supabase.from("order_items").delete().eq("order_id", detail.id);
+      await supabase.from("order_items").insert(
+        editForm.lineItems.map(li => ({ order_id: detail.id, item_id: li.item_id, quantity: Number(li.quantity) || 1, note: li.note || null }))
+      );
+      await refreshInv();
+      await refresh();
+      setEditing(false);
+      setDetail(null);
+    } catch (e) { setEditErr(e.message); }
+    finally { setSaving(false); }
   };
 
   const cancel = async id => {
-    if (!confirm("Cancel this order?")) return;
+    if (!confirm("Cancel this order? Items go back into inventory.")) return;
     const o = orders.find(x => x.id === id);
     if (o) {
-      const lineItems = orderItemsMap[id] || [];
-      for (const li of lineItems) {
-        const poolItemId = items.find(i => i.id === li.item_id)?.parent_id || li.item_id;
-        const { data: existing } = await supabase.from("inventory").select("*").eq("location_id", o.location_id).eq("item_id", poolItemId).maybeSingle();
-        if (existing) await supabase.from("inventory").update({ stock: existing.stock + li.quantity }).eq("id", existing.id);
-      }
+      const need = poolNeed(orderItemsMap[id] || []);
+      await applyPoolDelta(o.location_id, Object.fromEntries(Object.entries(need).map(([k, v]) => [k, -v])));
       await refreshInv();
     }
     await supabase.from("orders").update({ status: "cancelled" }).eq("id", id);
-    await refresh();
-    setDetail(null);
-  };
-
-  const complete = async id => {
-    await supabase.from("orders").update({ status: "completed" }).eq("id", id);
     await refresh();
     setDetail(null);
   };
@@ -682,45 +727,37 @@ function Orders({ activeLoc, user, orders, orderItemsMap, refresh, inv, refreshI
     setDetailEmailSending(false);
   };
 
+  const dayLabel = (d) => d === today ? "Today" : d === tomorrow ? "Tomorrow" : fmtDateLongShort(d);
+
   return (
     <div>
       {detail && (
-        <Modal title={`Order #${detail.invoice_number}`} onClose={closeDetail}>
+        <Modal title={editing ? `Edit ${orderNumberText(detail)}` : LOCS.find(l => l.id === detail.location_id)?.name} onClose={closeDetail}>
           {!editing ? (
             <>
-              <table className="tbl kv" style={{ width: "100%", borderCollapse: "collapse" }}>
-                <tbody>
-                  {[
-                    ["Customer", detail.customer_name],
-                    ["Phone", detail.customer_phone],
-                    ...(detail.customer_email ? [["Email", detail.customer_email]] : []),
-                    ["Pickup", `${fmtDate(detail.pickup_date)} at ${fmtTime(detail.pickup_time)}`],
-                    ["Invoice", `#${detail.invoice_number}`],
-                    ["Location", LOCS.find(l => l.id === detail.location_id)?.name],
-                    ["Order placed", `${fmtDate(detail.order_date)} at ${fmtTime(detail.order_time)}`],
-                    ["Daily #", `#${detail.daily_number}`],
-                    ["Taken by", detail.taken_by],
-                    ["Status", detail.status],
-                    ...(detail.notes ? [["Notes", detail.notes]] : [])
-                  ].map(([k, v]) => (
-                    <tr key={k}><td>{k}</td><td>{v}</td></tr>
-                  ))}
-                </tbody>
-              </table>
-              <div className="divider" />
-              <p className="eyebrow" style={{ marginBottom: 6 }}>Items</p>
-              {(orderItemsMap[detail.id] || []).map((li, i) => {
-                const item = items.find(x => x.id === li.item_id);
-                return <div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: "1px dotted var(--line)" }}>
-                  <span>{item?.name}</span>
-                  <span className="muted">x{li.quantity}</span>
-                </div>;
-              })}
-              <div className="stack" style={{ marginTop: 14 }}>
-                <div className="hstack" style={{ flexWrap: "nowrap" }}>
-                  <Button style={{ flex: 1 }} onClick={() => startEdit(detail)}>Edit</Button>
-                  {paperOn[detail.location_id] && <Button style={{ flex: 1 }} icon="printer" onClick={() => { setDetail(null); setTimeout(() => printReceipt(detail, orderItemsMap[detail.id] || [], items, LOCS), 200); }}>Print receipt</Button>}
-                </div>
+              <div className="order-hero">
+                <p className="mon">{monthOf(detail.pickup_date)} order{detail.status === "cancelled" ? " · cancelled" : ""}</p>
+                <p className="seq" style={detail.status === "cancelled" ? { color: "var(--faint)", textDecoration: "line-through" } : undefined}>#{orderSeq(detail)}</p>
+                <p className="h2" style={{ marginTop: 10 }}>{detail.customer_name}</p>
+                <p className="small muted">{detail.customer_phone}{detail.customer_email ? ` · ${detail.customer_email}` : ""}</p>
+                <p style={{ fontWeight: 600, marginTop: 8 }}>Pickup {dayLabel(detail.pickup_date)} at {fmtTime(detail.pickup_time)}</p>
+              </div>
+              {detail.stock_override && <Banner tone="warn" style={{ marginBottom: 10 }}><Icon name="alert" size={16} />Placed with a manager stock override.</Banner>}
+              <Card tight style={{ marginBottom: 10 }}>
+                {(orderItemsMap[detail.id] || []).map((li, i) => {
+                  const item = items.find(x => x.id === li.item_id);
+                  return <div key={i} className="item-line">
+                    <div style={{ minWidth: 0 }}>
+                      <p style={{ fontWeight: 600 }}>{item?.name}</p>
+                      {li.note && <p className="xs muted">{li.note}</p>}
+                    </div>
+                    <span className="brand" style={{ fontWeight: 700, whiteSpace: "nowrap" }}>{qtyText(item, li.quantity)}</span>
+                  </div>;
+                })}
+                {detail.notes && <p className="small" style={{ marginTop: 10, paddingTop: 10, borderTop: "1px dashed var(--line)" }}><span className="muted">Order note: </span>{detail.notes}</p>}
+              </Card>
+
+              <div className="stack">
                 <LabelPrint full getLabels={() => labelsFor([detail], { [detail.id]: orderItemsMap[detail.id] || [] }, items)} showStatus={can("manager")} />
                 <Card tight>
                   <p className="small muted" style={{ marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}><Icon name="mail" size={16} />Email receipt</p>
@@ -732,12 +769,18 @@ function Orders({ activeLoc, user, orders, orderItemsMap, refresh, inv, refreshI
                   {detailEmailStatus === "error" && <p className="xs danger" style={{ marginTop: 6 }}>Failed to send. Check Vercel logs.</p>}
                   {detailEmailStatus === "error_addr" && <p className="xs danger" style={{ marginTop: 6 }}>Please enter a valid email address.</p>}
                 </Card>
-                {detail.status === "pending" && (
-                  <div className="hstack" style={{ flexWrap: "nowrap" }}>
-                    <Button variant="ok-soft" style={{ flex: 1 }} onClick={() => complete(detail.id)}>Mark complete</Button>
-                    <Button variant="danger-soft" style={{ flex: 1 }} onClick={() => cancel(detail.id)}>Cancel order</Button>
-                  </div>
-                )}
+                <div className="hstack" style={{ flexWrap: "nowrap" }}>
+                  <Button style={{ flex: 1 }} onClick={() => startEdit(detail)}>Edit</Button>
+                  {paperOn[detail.location_id] && <Button style={{ flex: 1 }} icon="printer" onClick={() => { setDetail(null); setTimeout(() => printReceipt(detail, orderItemsMap[detail.id] || [], items, LOCS), 200); }}>Print receipt</Button>}
+                  {detail.status === "pending" && <Button variant="danger-soft" style={{ flex: 1 }} onClick={() => cancel(detail.id)}>Cancel order</Button>}
+                </div>
+                <button type="button" className="btn-link muted" style={{ color: "var(--faint)", textAlign: "left" }} onClick={() => setShowMeta(s => !s)}>{showMeta ? "Hide details" : "Details"}</button>
+                {showMeta && <div className="meta-row">
+                  <span>Placed {fmtDate(detail.order_date)} {fmtTime(detail.order_time)}</span>
+                  <span>By {detail.taken_by}</span>
+                  <span>Status {detail.status}</span>
+                  <span>Ref {detail.invoice_number}</span>
+                </div>}
                 {can("manager") && (
                   <div style={{ paddingTop: 10, borderTop: "1px dashed var(--line)" }}>
                     <Button variant="danger" full icon="trash" onClick={() => deleteOrder(detail.id)}>Delete order (managers only)</Button>
@@ -755,26 +798,16 @@ function Orders({ activeLoc, user, orders, orderItemsMap, refresh, inv, refreshI
               <Field label="Email (optional)"><Input type="email" value={editForm.customer_email || ""} onChange={e => setEditForm(f => ({ ...f, customer_email: e.target.value }))} placeholder="customer@email.com" /></Field>
               {can("manager") && <Field label="Location"><Select value={editForm.location_id} onChange={e => setEditForm(f => ({ ...f, location_id: e.target.value }))}>{LOCS.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}</Select></Field>}
               <div className="grid2">
-                <Field label="Pickup date"><Input type="date" value={editForm.pickup_date} onChange={e => setEditForm(f => ({ ...f, pickup_date: e.target.value }))} /></Field>
+                <Field label="Pickup date" hint={ymOf(editForm.pickup_date) !== ymOf(detail.pickup_date) ? `Changes the order number to a ${monthOf(editForm.pickup_date)} number` : undefined}><Input type="date" value={editForm.pickup_date} onChange={e => setEditForm(f => ({ ...f, pickup_date: e.target.value }))} /></Field>
                 <Field label="Pickup time"><TimeInput value={editForm.pickup_time} onChange={v => setEditForm(f => ({ ...f, pickup_time: v }))} /></Field>
               </div>
               <Field label="Items">
-                <div className="stack">
-                  {editForm.lineItems.map((li, i) => (
-                    <div key={i} style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                      <Select value={li.item_id} onChange={e => setEditForm(f => ({ ...f, lineItems: f.lineItems.map((x, idx) => idx === i ? { ...x, item_id: e.target.value } : x) }))} style={{ flex: 3 }}>
-                        {items.filter(x => x.active !== false).map(x => <option key={x.id} value={x.id}>{x.name}</option>)}
-                      </Select>
-                      <Input type="number" min={1} value={li.quantity} onChange={e => setEditForm(f => ({ ...f, lineItems: f.lineItems.map((x, idx) => idx === i ? { ...x, quantity: e.target.value } : x) }))} style={{ width: 72, flex: "none" }} />
-                      {editForm.lineItems.length > 1 && <button type="button" className="close" style={{ margin: 0 }} onClick={() => setEditForm(f => ({ ...f, lineItems: f.lineItems.filter((_, idx) => idx !== i) }))} aria-label="Remove">×</button>}
-                    </div>
-                  ))}
-                  <div><Button variant="outline" size="sm" icon="plus" onClick={() => setEditForm(f => ({ ...f, lineItems: [...f.lineItems, { item_id: items.filter(x => x.active !== false)[0]?.id || "", quantity: 1 }] }))}>Add item</Button></div>
-                </div>
+                <ItemPicker items={items} inv={inv} locationId={editForm.location_id} lines={editForm.lineItems} onChange={lines => setEditForm(f => ({ ...f, lineItems: lines }))} canOverride={can("manager")} autoStart={false} />
               </Field>
-              <Field label="Notes"><Textarea value={editForm.notes} onChange={e => setEditForm(f => ({ ...f, notes: e.target.value }))} /></Field>
+              <Field label="Order notes"><Textarea value={editForm.notes} onChange={e => setEditForm(f => ({ ...f, notes: e.target.value }))} /></Field>
+              {editErr && <Banner tone="err" style={{ marginBottom: 12 }}><Icon name="alert" size={16} />{editErr}</Banner>}
               <div className="hstack" style={{ flexWrap: "nowrap" }}>
-                <Button variant="primary" style={{ flex: 1 }} onClick={saveEdit}>Save changes</Button>
+                <Button variant="primary" style={{ flex: 1 }} onClick={saveEdit} disabled={saving}>{saving ? "Saving…" : "Save changes"}</Button>
                 <Button style={{ flex: 1 }} onClick={() => setEditing(false)}>Cancel</Button>
               </div>
             </>
@@ -791,11 +824,11 @@ function Orders({ activeLoc, user, orders, orderItemsMap, refresh, inv, refreshI
         <div style={{ flex: 1 }} />
         <label className="hstack small muted" style={{ cursor: "pointer", minHeight: 40 }}>
           <input type="checkbox" checked={showCancelled} onChange={e => setShowCancelled(e.target.checked)} />
-          Cancelled
+          Show cancelled
         </label>
       </div>
       <div className="hstack" style={{ marginBottom: 12 }}>
-        <Input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search all orders — name, phone, or invoice #" style={{ flex: 1, minWidth: 200 }} />
+        <Input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search all orders — name, phone, or order #" style={{ flex: 1, minWidth: 200 }} />
         {!activeLoc && <Select inline value={lf} onChange={e => setLf(e.target.value)} style={{ minWidth: 160 }}><option value="">All locations</option>{LOCS.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}</Select>}
       </div>
 
@@ -804,7 +837,7 @@ function Orders({ activeLoc, user, orders, orderItemsMap, refresh, inv, refreshI
         <LabelPrint statusOnly showStatus style={{ marginBottom: 8 }} />}
       {!searching && (range === "today" || range === "tomorrow" || range === "date") && (() => {
         const labelDay = df || today;
-        const dayOrders = orders.filter(o => o.pickup_date === labelDay && o.status !== "cancelled" && (!lf || o.location_id === lf)).sort((a, b) => a.daily_number - b.daily_number);
+        const dayOrders = orders.filter(o => o.pickup_date === labelDay && o.status !== "cancelled" && (!lf || o.location_id === lf)).sort((a, b) => orderSeq(a) - orderSeq(b));
         return <Card tight style={{ marginBottom: 12 }}>
           <LabelPrint all getLabels={() => labelsFor(dayOrders, orderItemsMap, items)} caption={fmtDateLongShort(labelDay)} showStatus={can("manager")} />
         </Card>;
@@ -813,28 +846,30 @@ function Orders({ activeLoc, user, orders, orderItemsMap, refresh, inv, refreshI
       {/* Summary line */}
       <p className="small muted" style={{ marginBottom: 8 }}>
         {searching ? `${filtered.length} match${filtered.length === 1 ? "" : "es"}` : `${filtered.length} order${filtered.length === 1 ? "" : "s"}${range === "today" ? " today" : range === "tomorrow" ? " tomorrow" : range === "date" ? ` on ${fmtDate(df)}` : range === "upcoming" ? " upcoming" : ""}`}
-        {Object.keys(statusCounts).filter(k => k !== "pending").map(k => ` · ${statusCounts[k]} ${k}`).join("")}
+        {cancelledCount ? ` · ${cancelledCount} cancelled` : ""}
       </p>
 
       {filtered.length === 0 ? <Empty>{searching ? "No orders match." : range === "today" ? "No pickups today." : "No orders."}</Empty> :
         filtered.map((o, idx) => {
           const loc = LOCS.find(l => l.id === o.location_id);
           const lineItems = orderItemsMap[o.id] || [];
-          const qty = lineItems.reduce((n, li) => n + (parseInt(li.quantity) || 0), 0);
-          const itemSummary = lineItems.map(li => { const item = items.find(i => i.id === li.item_id); return `${li.quantity > 1 ? `${li.quantity}× ` : ""}${item?.name || ""}`; }).join(", ");
+          const itemSummary = lineItems.map(li => { const item = items.find(i => i.id === li.item_id); return `${qtyPrefix(item, li.quantity)}${lineName(item, items)}`; }).join(", ");
           const showHeader = groupByDate && (idx === 0 || filtered[idx - 1].pickup_date !== o.pickup_date);
           return (
             <div key={o.id}>
               {showHeader && <div className="date-head">
-                <p className="eyebrow brand">{o.pickup_date === today ? "Today" : o.pickup_date === tomorrow ? "Tomorrow" : fmtDateLongShort(o.pickup_date)}</p>
-                <LabelPrint all getLabels={() => labelsFor(filtered.filter(x => x.pickup_date === o.pickup_date && x.status !== "cancelled").sort((a, b) => a.daily_number - b.daily_number), orderItemsMap, items)} caption={fmtDateLongShort(o.pickup_date)} />
+                <p className="eyebrow brand">{dayLabel(o.pickup_date)}</p>
+                <LabelPrint all getLabels={() => labelsFor(filtered.filter(x => x.pickup_date === o.pickup_date && x.status !== "cancelled").sort((a, b) => orderSeq(a) - orderSeq(b)), orderItemsMap, items)} caption={fmtDateLongShort(o.pickup_date)} />
               </div>}
-              <div className={cx("order-row", o.status === "cancelled" && "cancelled")} onClick={() => openDetail(o)} title={itemSummary}>
-                <span className="order-num">#{o.daily_number}</span>
+              <div className={cx("order-row", o.status === "cancelled" && "cancelled")} onClick={() => openDetail(o)}>
+                <span className="order-num">#{orderSeq(o)}</span>
                 <span className="order-time num">{fmtTime(o.pickup_time)}</span>
-                <span className="order-name ellipsis">{o.customer_name}{(searching || range === "all") && <span className="sub"> · {fmtDate(o.pickup_date)}</span>}{!activeLoc && <span className="sub"> · {loc?.name}</span>}</span>
-                <span className="order-qty">{qty} item{qty === 1 ? "" : "s"}</span>
-                <Chip tone={o.status}>{o.status}</Chip>
+                <span className="order-name" style={{ overflow: "hidden" }}>
+                  <span className="ellipsis" style={{ display: "block" }}>{o.customer_name}{(searching || range === "all") && <span className="sub"> · {fmtDate(o.pickup_date)}</span>}{!activeLoc && <span className="sub"> · {loc?.name}</span>}</span>
+                  <span className="xs muted ellipsis" style={{ display: "block", fontWeight: 400 }}>{itemSummary}</span>
+                </span>
+                {o.stock_override && <Icon name="alert" size={16} style={{ color: "var(--warn)" }} />}
+                {o.status === "cancelled" && <Chip tone="cancelled">cancelled</Chip>}
               </div>
             </div>
           );
@@ -844,19 +879,19 @@ function Orders({ activeLoc, user, orders, orderItemsMap, refresh, inv, refreshI
   );
 }
 
-function NewOrder({ activeLoc, user, orders, refresh, inv, refreshInv, items, setView, paperOn = {}, customers = [], refreshCustomers }) {
+function NewOrder({ activeLoc, user, orders, refresh, inv, refreshInv, items, setView, paperOn = {}, customers = [], refreshCustomers, can }) {
   const locs = activeLoc ? LOCS.filter(l => l.id === activeLoc) : LOCS;
-  const orderableItems = items.filter(i => i.active !== false);
   const [locationId, setLocationId] = useState(activeLoc || locs[0]?.id || "");
   const [firstName, setFirstName] = useState("");
   const [lastName, setLastName] = useState("");
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
-  const [lineItems, setLineItems] = useState([{ item_id: orderableItems[0]?.id || "", quantity: 1 }]);
+  const [lineItems, setLineItems] = useState([]);
   const [pickupDate, setPickupDate] = useState("");
   const [pickupTime, setPickupTime] = useState("12:00");
   const [notes, setNotes] = useState("");
   const [err, setErr] = useState("");
+  const [submitting, setSubmitting] = useState(false);
   // confirmation screen state
   const [confirming, setConfirming] = useState(false);
   const [placedOrder, setPlacedOrder] = useState(null);
@@ -864,6 +899,7 @@ function NewOrder({ activeLoc, user, orders, refresh, inv, refreshInv, items, se
   const [confirmEmail, setConfirmEmail] = useState("");
   const [emailSending, setEmailSending] = useState(false);
   const [emailStatus, setEmailStatus] = useState(""); // "sent" | "error" | ""
+  const [overrideNote, setOverrideNote] = useState("");
 
   const [matched, setMatched] = useState(null);   // customer record auto-matched by phone
   const [custQuery, setCustQuery] = useState("");
@@ -890,15 +926,8 @@ function NewOrder({ activeLoc, user, orders, refresh, inv, refreshInv, items, se
     const q = custQuery.trim().toLowerCase(); const qd = digits(q);
     return (c.name || "").toLowerCase().includes(q) || (qd.length >= 3 && (c.phone_digits || "").includes(qd)) || (c.email || "").toLowerCase().includes(q);
   }).slice(0, 8) : [];
-  const addLineItem = () => setLineItems(li => [...li, { item_id: orderableItems[0]?.id || "", quantity: 1 }]);
-  const removeLineItem = i => setLineItems(li => li.filter((_, idx) => idx !== i));
-  const updateLineItem = (i, field, val) => setLineItems(li => li.map((x, idx) => idx === i ? { ...x, [field]: val } : x));
 
-  const getStockForItem = (itemId) => {
-    const item = items.find(i => i.id === itemId);
-    const poolId = item?.parent_id || itemId;
-    return inv[`${locationId}_${poolId}`] ?? null;
-  };
+  const canOverride = can("manager");
 
   const submit = async () => {
     if (!firstName.trim()) { setErr("First name required."); return; }
@@ -906,83 +935,109 @@ function NewOrder({ activeLoc, user, orders, refresh, inv, refreshInv, items, se
     if (!phone.trim()) { setErr("Phone required."); return; }
     if (!pickupDate) { setErr("Pickup date required."); return; }
     if (lineItems.length === 0) { setErr("Add at least one item."); return; }
-
-    const orderDate = tod();
-    const orderTime = nowT();
-
-    const { data: allOrders } = await supabase.from("orders").select("invoice_number, location_id, pickup_date, status");
-    const { data: pickupOrders } = await supabase.from("orders").select("id").eq("location_id", locationId).eq("pickup_date", pickupDate).neq("status", "cancelled");
-    const maxInvoice = (allOrders || []).reduce((m, o) => Math.max(m, o.invoice_number || 0), 999);
-    const invoiceNumber = maxInvoice + 1;
-    const dailyNumber = (pickupOrders || []).length + 1;
-    const customerName = `${firstName.trim()} ${lastName.trim()}`;
-
-    const newOrder = {
-      id: `ord_${Date.now()}`,
-      location_id: locationId,
-      customer_name: customerName,
-      customer_phone: phone,
-      customer_email: email.trim() || null,
-      item_id: lineItems[0]?.item_id || "",
-      order_date: orderDate,
-      order_time: orderTime,
-      pickup_date: pickupDate,
-      pickup_time: pickupTime,
-      notes,
-      invoice_number: invoiceNumber,
-      daily_number: dailyNumber,
-      status: "pending",
-      taken_by: user.name,
-      created_at: new Date().toISOString()
-    };
-
-    // Create or update the customer record (phone is the key) and link the order
+    setErr(""); setSubmitting(true);
     try {
-      const d = digits(phone);
-      const existing = customers.find(c => c.phone_digits === d);
-      const custPayload = { phone, name: customerName, first_name: firstName.trim(), last_name: lastName.trim(), email: email.trim() || existing?.email || null, updated_at: new Date().toISOString() };
-      if (existing) {
-        await supabase.from("customers").update(custPayload).eq("id", existing.id);
-        newOrder.customer_id = existing.id;
-      } else {
-        const { data: created } = await supabase.from("customers").insert({ ...custPayload, home_location_id: locationId }).select("id").single();
-        if (created) newOrder.customer_id = created.id;
+      // ── Stock check against a FRESH read (two iPads can't both take the last one)
+      const { data: freshInv } = await supabase.from("inventory").select("*").eq("location_id", locationId);
+      const stockMap = {}; (freshInv || []).forEach(r => { stockMap[r.item_id] = r.stock; });
+      const need = {};
+      for (const li of lineItems) {
+        const it = items.find(i => i.id === li.item_id); const pool = poolFor(it, items);
+        if (!pool?.tracked || !(pool.id in stockMap)) continue;
+        need[pool.id] = (need[pool.id] || 0) + (Number(li.quantity) || 0);
       }
-    } catch (e) { console.error("customer upsert failed", e); }
+      const overs = Object.entries(need).filter(([pid, q]) => q > (stockMap[pid] ?? 0)).map(([pid, q]) => {
+        const pool = items.find(i => i.id === pid);
+        return { item: pool, itemName: pool?.name || pid, requested: q, available: stockMap[pid] ?? 0 };
+      });
+      let stockOverride = false;
+      if (overs.length) {
+        const list = overs.map(o => `• ${o.itemName}: ordering ${o.requested}, ${o.available > 0 ? `only ${o.available} left` : o.available === 0 ? "sold out" : `already oversold by ${-o.available}`}`).join("\n");
+        if (!canOverride) { setErr(`Not enough stock — ask a manager.\n${list}`); setSubmitting(false); return; }
+        if (!window.confirm(`Not enough stock:\n${list}\n\nPlace the order anyway? The pool will show as oversold and the store will be emailed.`)) { setSubmitting(false); return; }
+        stockOverride = true;
+      }
 
-    await supabase.from("orders").insert(newOrder);
-    if (refreshCustomers) await refreshCustomers();
+      const orderDate = tod();
+      const orderTime = nowT();
+      const { data: allOrders } = await supabase.from("orders").select("invoice_number");
+      const maxInvoice = (allOrders || []).reduce((m, o) => Math.max(m, o.invoice_number || 0), 999);
+      const { data: seq, error: seqErr } = await supabase.rpc("next_order_seq", { p_location: locationId, p_pickup_date: pickupDate });
+      if (seqErr || !seq) throw new Error(seqErr?.message || "Could not get an order number.");
+      const customerName = `${firstName.trim()} ${lastName.trim()}`;
 
-    const orderItemRows = lineItems.map(li => ({
-      order_id: newOrder.id,
-      item_id: li.item_id,
-      quantity: parseInt(li.quantity) || 1,
-    }));
-    await supabase.from("order_items").insert(orderItemRows);
+      const newOrder = {
+        id: `ord_${Date.now()}`,
+        location_id: locationId,
+        customer_name: customerName,
+        customer_phone: phone,
+        customer_email: email.trim() || null,
+        item_id: lineItems[0]?.item_id || "",
+        order_date: orderDate,
+        order_time: orderTime,
+        pickup_date: pickupDate,
+        pickup_time: pickupTime,
+        notes,
+        invoice_number: maxInvoice + 1,   // internal only; no longer shown anywhere
+        daily_number: seq,                // kept in step with order_seq for the old code paths
+        order_seq: seq,
+        stock_override: stockOverride,
+        status: "pending",
+        taken_by: user.name,
+        created_at: new Date().toISOString()
+      };
 
-    const poolDeductions = {};
-    for (const li of lineItems) {
-      const item = items.find(i => i.id === li.item_id);
-      const poolId = item?.parent_id || li.item_id;
-      const key = `${locationId}_${poolId}`;
-      poolDeductions[key] = (poolDeductions[key] || 0) + (parseInt(li.quantity) || 1);
-    }
-    for (const [key, qty] of Object.entries(poolDeductions)) {
-      const parts = key.split("_");
-      const locId = parts[0];
-      const itemId = parts.slice(1).join("_");
-      const { data: existing } = await supabase.from("inventory").select("*").eq("location_id", locId).eq("item_id", itemId).maybeSingle();
-      if (existing) await supabase.from("inventory").update({ stock: Math.max(0, existing.stock - qty) }).eq("id", existing.id);
-    }
+      // Create or update the customer record (phone is the key) and link the order
+      try {
+        const d = digits(phone);
+        const existing = customers.find(c => c.phone_digits === d);
+        const custPayload = { phone, name: customerName, first_name: firstName.trim(), last_name: lastName.trim(), email: email.trim() || existing?.email || null, updated_at: new Date().toISOString() };
+        if (existing) {
+          await supabase.from("customers").update(custPayload).eq("id", existing.id);
+          newOrder.customer_id = existing.id;
+        } else {
+          const { data: created } = await supabase.from("customers").insert({ ...custPayload, home_location_id: locationId }).select("id").single();
+          if (created) newOrder.customer_id = created.id;
+        }
+      } catch (e) { console.error("customer upsert failed", e); }
 
-    await refreshInv();
-    await refresh();
+      const { error: insErr } = await supabase.from("orders").insert(newOrder);
+      if (insErr) throw new Error(insErr.message);
+      if (refreshCustomers) await refreshCustomers();
 
-    // Go to confirmation screen instead of auto-printing
-    setPlacedOrder(newOrder);
-    setPlacedOrderItems(orderItemRows);
-    setConfirmEmail(email);
-    setConfirming(true);
+      const orderItemRows = lineItems.map(li => ({
+        order_id: newOrder.id,
+        item_id: li.item_id,
+        quantity: Number(li.quantity) || 1,
+        note: li.note || null,
+      }));
+      await supabase.from("order_items").insert(orderItemRows);
+
+      // Deduct from pools. Overrides are allowed to go negative so the count stays honest.
+      for (const [poolId, qty] of Object.entries(need)) {
+        const { data: existing } = await supabase.from("inventory").select("*").eq("location_id", locationId).eq("item_id", poolId).maybeSingle();
+        if (existing) await supabase.from("inventory").update({ stock: existing.stock - qty }).eq("id", existing.id);
+      }
+
+      await refreshInv();
+      await refresh();
+
+      if (stockOverride) {
+        const loc = LOCS.find(l => l.id === locationId);
+        fetch("/api/notify-stock", { method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ locationId, order: newOrder, overs: overs.map(o => ({ ...o, item: { sold_by: o.item?.sold_by } })), loc, placedBy: user.name }) })
+          .then(r => r.json()).then(j => setOverrideNote(j.ok ? "Store alerted by email." : j.skipped === "no_alert_email" ? "No alert email set for this store (Admin → Store settings)." : `Alert email not sent: ${j.skipped || j.error || ""}`))
+          .catch(() => setOverrideNote("Alert email not sent."));
+      }
+
+      setPlacedOrder(newOrder);
+      setPlacedOrderItems(orderItemRows);
+      setConfirmEmail(email);
+      setConfirming(true);
+    } catch (e) {
+      console.error(e);
+      setErr(e.message || "Something went wrong placing the order.");
+    } finally { setSubmitting(false); }
   };
 
   const sendEmail = async (toAddr) => {
@@ -1014,9 +1069,13 @@ function NewOrder({ activeLoc, user, orders, refresh, inv, refreshInv, items, se
         <Card style={{ textAlign: "center", marginBottom: 14, padding: 24 }}>
           <div style={{ width: 44, height: 44, borderRadius: "50%", background: "var(--ok-bg)", color: "var(--ok)", display: "inline-flex", alignItems: "center", justifyContent: "center", marginBottom: 8 }}><Icon name="check" size={24} /></div>
           <p className="h2">Order confirmed</p>
-          <p style={{ fontSize: 40, fontWeight: 800, color: "var(--brand)", lineHeight: 1.1, margin: "6px 0 4px" }}>#{placedOrder.daily_number}</p>
-          <p className="small muted">Invoice #{placedOrder.invoice_number} · {placedOrder.customer_name}</p>
+          <div className="order-hero">
+            <p className="mon">{monthOf(placedOrder.pickup_date)} order</p>
+            <p className="seq">#{orderSeq(placedOrder)}</p>
+          </div>
+          <p className="small muted">{placedOrder.customer_name}</p>
           <p className="small muted">Pickup: {fmtDate(placedOrder.pickup_date)} at {fmtTime(placedOrder.pickup_time)}</p>
+          {placedOrder.stock_override && <Banner tone="warn" style={{ marginTop: 12, textAlign: "left" }}><Icon name="alert" size={16} /><span>Placed with a stock override. {overrideNote}</span></Banner>}
         </Card>
 
         <Card style={{ marginBottom: 14 }}>
@@ -1035,7 +1094,7 @@ function NewOrder({ activeLoc, user, orders, refresh, inv, refreshInv, items, se
               </Button>
               {emailStatus === "error" && <p className="xs danger" style={{ marginTop: 8 }}>Failed to send. Check the address and try again.</p>}
               {emailStatus === "error_addr" && <p className="xs danger" style={{ marginTop: 8 }}>Please enter a valid email address.</p>}
-              {!validEmail && <p className="xs muted" style={{ marginTop: 8, textAlign: "center" }}>No email? The order is already saved — the customer can reference order #{placedOrder.daily_number}.</p>}
+              {!validEmail && <p className="xs muted" style={{ marginTop: 8, textAlign: "center" }}>No email? The order is already saved — the customer can reference order {orderNumberText(placedOrder)}.</p>}
             </>
           )}
           {paper && <Button full icon="printer" style={{ marginTop: 10 }} onClick={() => printReceipt(placedOrder, placedOrderItems, items, LOCS)}>Print paper receipt</Button>}
@@ -1047,7 +1106,7 @@ function NewOrder({ activeLoc, user, orders, refresh, inv, refreshInv, items, se
   }
 
   return (
-    <div style={{ maxWidth: 540 }}>
+    <div style={{ maxWidth: 560 }}>
       <p className="h1">New order</p>
       {!activeLoc && <Field label="Location"><Select value={locationId} onChange={e => setLocationId(e.target.value)}>{LOCS.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}</Select></Field>}
       <Field label={<>Find customer <span className="faint">(name, phone, or email)</span></>}>
@@ -1072,34 +1131,18 @@ function NewOrder({ activeLoc, user, orders, refresh, inv, refreshInv, items, se
       </div>
       <Field label="Customer email (optional)"><Input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="customer@email.com" /></Field>
       <Field label="Items">
-        <div className="stack">
-          {lineItems.map((li, i) => {
-            const stock = getStockForItem(li.item_id);
-            return <div key={i}>
-              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                <Select value={li.item_id} onChange={e => updateLineItem(i, "item_id", e.target.value)} style={{ flex: 3 }}>
-                  {orderableItems.map(x => <option key={x.id} value={x.id}>{x.name}</option>)}
-                </Select>
-                <Input type="number" min={1} value={li.quantity} onChange={e => updateLineItem(i, "quantity", e.target.value)} style={{ width: 72, flex: "none" }} />
-                {lineItems.length > 1 && <button type="button" className="close" style={{ margin: 0 }} onClick={() => removeLineItem(i)} aria-label="Remove">×</button>}
-              </div>
-              {stock !== null && <p className={cx("xs", stock <= 0 ? "danger" : stock <= 5 ? "warn" : "ok")} style={{ marginTop: 4, marginLeft: 2 }}>{stock <= 0 ? "Out of stock" : stock <= 5 ? `Low stock (${stock} left in pool)` : `${stock} in pool`}</p>}
-            </div>;
-          })}
-          <div><Button variant="outline" size="sm" icon="plus" onClick={addLineItem}>Add item</Button></div>
-        </div>
+        <ItemPicker items={items} inv={inv} locationId={locationId} lines={lineItems} onChange={setLineItems} canOverride={canOverride} />
       </Field>
       <div className="grid2">
         <Field label="Pickup date"><Input type="date" value={pickupDate} onChange={e => setPickupDate(e.target.value)} /></Field>
         <Field label="Pickup time"><TimeInput value={pickupTime} onChange={setPickupTime} /></Field>
       </div>
-      <Field label="Notes (optional)"><Textarea value={notes} onChange={e => setNotes(e.target.value)} placeholder="Special instructions..." /></Field>
-      {err && <Banner tone="err" style={{ marginBottom: 12 }}><Icon name="alert" size={16} />{err}</Banner>}
-      <Button variant="primary" size="lg" full onClick={submit}>Place order</Button>
+      <Field label="Order notes (optional)" hint="For the whole order — pickup instructions, who's picking up. Item notes go on each item above."><Textarea value={notes} onChange={e => setNotes(e.target.value)} placeholder="Special instructions..." /></Field>
+      {err && <Banner tone="err" style={{ marginBottom: 12, whiteSpace: "pre-line" }}><Icon name="alert" size={16} />{err}</Banner>}
+      <Button variant="primary" size="lg" full onClick={submit} disabled={submitting}>{submitting ? "Placing order…" : "Place order"}</Button>
     </div>
   );
 }
-
 
 function Customers({ customers, refreshCustomers, orders, orderItemsMap, items, activeLoc }) {
   const [q, setQ] = useState("");
@@ -1112,7 +1155,7 @@ function Customers({ customers, refreshCustomers, orders, orderItemsMap, items, 
     for (const o of orders) { if (o.customer_id) (m[o.customer_id] = m[o.customer_id] || []).push(o); }
     return m;
   }, [orders]);
-  const custOrders = (c) => (byCust[c.id] || []).slice().sort((a, b) => (b.pickup_date || "").localeCompare(a.pickup_date || "") || (b.invoice_number || 0) - (a.invoice_number || 0));
+  const custOrders = (c) => (byCust[c.id] || []).slice().sort((a, b) => (b.pickup_date || "").localeCompare(a.pickup_date || "") || (b.created_at || "").localeCompare(a.created_at || ""));
   // Home store: the saved one, otherwise the store they've ordered from most
   const homeOf = (c) => {
     if (c.home_location_id) return c.home_location_id;
@@ -1174,10 +1217,10 @@ function Customers({ customers, refreshCustomers, orders, orderItemsMap, items, 
         {os.length === 0 && <p className="small muted">No orders yet.</p>}
         {os.map(o => {
           const lis = orderItemsMap[o.id] || [];
-          const summary = lis.map(li => `${items.find(i => i.id === li.item_id)?.name || "?"} ×${li.quantity}`).join(", ");
+          const summary = lis.map(li => { const it = items.find(i => i.id === li.item_id); return `${qtyPrefix(it, li.quantity)}${lineName(it, items) || "?"}`; }).join(", ");
           return <Card key={o.id} tight row style={{ marginBottom: 6 }}>
             <div style={{ minWidth: 0 }}>
-              <p style={{ fontWeight: 600 }}>{fmtDate(o.pickup_date)} {fmtTime(o.pickup_time)} · #{o.invoice_number}</p>
+              <p style={{ fontWeight: 600 }}>{fmtDate(o.pickup_date)} {fmtTime(o.pickup_time)} · {orderNumberText(o)}</p>
               <p className="small muted ellipsis" style={{ marginTop: 2 }}>{summary}</p>
               <p className="xs faint" style={{ marginTop: 2 }}>{LOCS.find(l => l.id === o.location_id)?.name}</p>
             </div>
@@ -1230,21 +1273,32 @@ function Reports({ activeLoc, orders, orderItemsMap, items, user, can }) {
   const popMap = {};
   fil.forEach(o => {
     (orderItemsMap[o.id] || []).forEach(li => {
-      if (!popMap[li.item_id]) popMap[li.item_id] = 0;
-      popMap[li.item_id] += parseInt(li.quantity) || 1;
+      if (!popMap[li.item_id]) popMap[li.item_id] = { qty: 0, lines: 0 };
+      popMap[li.item_id].qty += Number(li.quantity) || 1;
+      popMap[li.item_id].lines += 1;
     });
   });
-  const pop = items.map(i => ({ item: i, count: popMap[i.id] || 0 })).filter(r => r.count > 0).sort((a, b) => b.count - a.count);
-  const prod = [...fil].sort((a, b) => a.location_id.localeCompare(b.location_id) || a.daily_number - b.daily_number);
+  // Pieces first, then by-the-pound, then per-person — units can't be ranked against each other.
+  const unitRank = { each: 0, lb: 1, person: 2 };
+  const pop = items.map(i => ({ item: i, ...(popMap[i.id] || { qty: 0, lines: 0 }) })).filter(r => r.qty > 0)
+    .sort((a, b) => (unitRank[a.item.sold_by || "each"] - unitRank[b.item.sold_by || "each"]) || b.qty - a.qty);
+  const prod = [...fil].sort((a, b) => a.location_id.localeCompare(b.location_id) || (a.pickup_date || "").localeCompare(b.pickup_date || "") || (a.pickup_time || "").localeCompare(b.pickup_time || "") || orderSeq(a) - orderSeq(b));
+  // "2× Bell & Evans…" / "4 lb Chicken Cutlets" — the quantity leads so the butcher reads it first.
+  const prodLines = (o) => (orderItemsMap[o.id] || []).map(li => {
+    const it = items.find(i => i.id === li.item_id);
+    const q = qtyText(it, li.quantity, { times: "" });
+    const lead = (it?.sold_by || "each") === "each" ? `${q}×` : q;
+    return { text: `${lead} ${it?.name || ""}`, note: li.note || "" };
+  });
 
   // Contact list — deduplicated by email, fallback dedupe by name+phone, most recent order wins
   const contactMap = {};
-  [...orders].filter(o => o.status !== "cancelled").sort((a, b) => a.invoice_number - b.invoice_number).forEach(o => {
+  [...orders].filter(o => o.status !== "cancelled").sort((a, b) => (a.created_at || "").localeCompare(b.created_at || "")).forEach(o => {
     const key = o.customer_email ? o.customer_email.toLowerCase() : `${o.customer_name.toLowerCase()}|${o.customer_phone}`;
     const l = LOCS.find(l => l.id === o.location_id);
     const lineItems = (orderItemsMap[o.id] || []).map(li => {
       const it = items.find(i => i.id === li.item_id);
-      return `${li.quantity > 1 ? `${li.quantity}x ` : ""}${it?.name || ""}`;
+      return `${qtyPrefix(it, li.quantity)}${it?.name || ""}`;
     }).join(", ");
     contactMap[key] = {
       name: o.customer_name,
@@ -1306,8 +1360,8 @@ function Reports({ activeLoc, orders, orderItemsMap, items, user, can }) {
       <img src="${logoUrl}" class="logo" />
       <h2>Popularity Report — Iavarone Bros.</h2>
       <p class="sub">Pickup: ${rangeText} · ${ln}</p>
-      <table><thead><tr><th>Qty</th><th>Item</th></tr></thead><tbody>
-        ${pop.map(r => `<tr><td>${r.count}</td><td>${r.item.name}</td></tr>`).join("")}
+      <table><thead><tr><th>Qty</th><th>Item</th><th>Orders</th></tr></thead><tbody>
+        ${pop.map(r => `<tr><td>${qtyText(r.item, r.qty, { times: "" })}</td><td>${r.item.name}</td><td>${r.lines}</td></tr>`).join("")}
       </tbody></table>
       <script>window.onload=function(){window.print();}<\/script>
     </body></html>`);
@@ -1321,15 +1375,12 @@ function Reports({ activeLoc, orders, orderItemsMap, items, user, can }) {
       <h2>Production Report — Iavarone Bros.</h2>
       <p class="sub">Pickup: ${rangeText} · ${ln}</p>
       <table><thead><tr>
-        <th>#</th><th>Invoice</th><th>Location</th><th>Customer</th><th>Phone</th><th>Items</th><th>Pickup time</th><th>Notes</th>
+        <th>Order</th><th>Location</th><th>Customer</th><th>Phone</th><th>Items</th><th>Pickup</th><th>Order notes</th>
       </tr></thead><tbody>
         ${prod.map(o => {
           const l = LOCS.find(l => l.id === o.location_id);
-          const lineItems = (orderItemsMap[o.id] || []).map(li => {
-            const it = items.find(i => i.id === li.item_id);
-            return `${li.quantity > 1 ? `${li.quantity}x ` : ""}${it?.name || ""}`;
-          }).join("<br/>");
-          return `<tr><td>${o.daily_number}</td><td>#${o.invoice_number}</td><td>${l?.name||""}</td><td>${o.customer_name}</td><td>${o.customer_phone}</td><td>${lineItems}</td><td>${fmtTime(o.pickup_time)}</td><td>${o.notes||""}</td></tr>`;
+          const lineItems = prodLines(o).map(x => `<b>${htmlEsc(x.text)}</b>${x.note ? `<br/><span style="color:#555">&nbsp;&nbsp;${htmlEsc(x.note)}</span>` : ""}`).join("<br/>");
+          return `<tr><td style="white-space:nowrap;font-weight:bold">${htmlEsc(orderNumberText(o))}</td><td>${l?.name||""}</td><td>${htmlEsc(o.customer_name)}</td><td>${htmlEsc(o.customer_phone)}</td><td>${lineItems}</td><td style="white-space:nowrap">${fmtDate(o.pickup_date)} ${fmtTime(o.pickup_time)}</td><td>${htmlEsc(o.notes||"")}</td></tr>`;
         }).join("")}
       </tbody></table>
       <script>window.onload=function(){window.print();}<\/script>
@@ -1359,8 +1410,9 @@ function Reports({ activeLoc, orders, orderItemsMap, items, user, can }) {
         <p className="small muted" style={{ marginBottom: 10 }}>{fil.length} orders · pickup {rangeText}</p>
         {pop.length === 0 ? <Empty>No orders in this range.</Empty> :
           pop.map(r => <Card key={r.item.id} tight style={{ marginBottom: 6, display: "flex", alignItems: "center", gap: 14 }}>
-            <span className="order-num" style={{ minWidth: 40 }}>{r.count}</span>
-            <span>{r.item.name}</span>
+            <span className="order-num" style={{ minWidth: 72, fontSize: 20, textAlign: "right" }}>{qtyText(r.item, r.qty, { times: "" })}</span>
+            <span style={{ flex: 1 }}>{r.item.name}</span>
+            <span className="xs muted">{r.lines} order{r.lines === 1 ? "" : "s"}</span>
           </Card>)
         }
       </div>}
@@ -1369,20 +1421,15 @@ function Reports({ activeLoc, orders, orderItemsMap, items, user, can }) {
         {prod.length === 0 ? <Empty>No orders in this range.</Empty> :
           <div className="tbl-wrap">
             <table className="tbl">
-              {th(["#", "Invoice", "Location", "Customer", "Phone", "Items", "Pickup", "Notes"])}
+              {th(["Order", "Location", "Customer", "Phone", "Items", "Pickup", "Order notes"])}
               <tbody>{prod.map(o => {
                 const l = LOCS.find(l => l.id === o.location_id);
-                const lineItems = (orderItemsMap[o.id] || []).map(li => {
-                  const it = items.find(i => i.id === li.item_id);
-                  return `${li.quantity > 1 ? `${li.quantity}x ` : ""}${it?.name || ""}`;
-                });
                 return <tr key={o.id}>
-                  <td style={{ fontWeight: 700, color: "var(--brand)" }}>{o.daily_number}</td>
-                  <td className="muted">#{o.invoice_number}</td>
+                  <td style={{ fontWeight: 700, color: "var(--brand)", whiteSpace: "nowrap" }}>{orderNumberText(o)}</td>
                   <td style={{ whiteSpace: "nowrap" }}>{l?.name}</td>
                   <td style={{ whiteSpace: "nowrap" }}>{o.customer_name}</td>
                   <td style={{ whiteSpace: "nowrap" }}>{o.customer_phone}</td>
-                  <td>{lineItems.map((li, i) => <div key={i}>{li}</div>)}</td>
+                  <td>{prodLines(o).map((x, i) => <div key={i}><b>{x.text}</b>{x.note && <div className="xs muted">{x.note}</div>}</div>)}</td>
                   <td style={{ whiteSpace: "nowrap" }}>{fmtDate(o.pickup_date)} {fmtTime(o.pickup_time)}</td>
                   <td className="muted">{o.notes}</td>
                 </tr>;
@@ -1422,12 +1469,12 @@ function Reports({ activeLoc, orders, orderItemsMap, items, user, can }) {
 
 function StockRow({ stock, onSet }) {
   const tone = stock <= 0 ? "danger" : stock <= 5 ? "warn" : "ok";
-  const text = stock <= 0 ? "Out of stock" : stock <= 5 ? `Low (${stock})` : `${stock} units`;
+  const text = stock < 0 ? `Oversold by ${-stock}` : stock === 0 ? "Sold out" : stock <= 5 ? `Low (${stock})` : `${stock} units`;
   return (
     <div className="hstack" style={{ flexWrap: "nowrap" }}>
       <div className="stepper">
         <button type="button" onClick={() => onSet(stock - 1)} aria-label="Decrease">−</button>
-        <Input type="number" key={stock} defaultValue={stock} min={0} onBlur={e => onSet(e.target.value)} />
+        <Input type="number" key={stock} defaultValue={stock} onBlur={e => onSet(e.target.value)} />
         <button type="button" onClick={() => onSet(stock + 1)} aria-label="Increase">+</button>
       </div>
       <span className={cx("xs", tone)} style={{ minWidth: 70 }}>{text}</span>
@@ -1439,11 +1486,12 @@ function Inventory({ activeLoc, can, inv, refreshInv, items, user }) {
   // Managers may only adjust their own store; admins follow the store switcher ("All stores" shows every location)
   const invLoc = can("admin") ? activeLoc : user.location_id;
   const locs = invLoc ? LOCS.filter(l => l.id === invLoc) : LOCS;
-  const parentItems = items.filter(i => i.active !== false && !i.parent_id);
+  // Only tracked items are counted; the rest are made to order.
+  const parentItems = items.filter(i => i.active !== false && !i.parent_id && i.tracked);
   const childItems = items.filter(i => i.active !== false && i.parent_id);
 
   const set = async (locId, itemId, val) => {
-    const stock = Math.max(0, parseInt(val) || 0);
+    const stock = parseInt(val) || 0;
     const { data: existing } = await supabase.from("inventory").select("*").eq("location_id", locId).eq("item_id", itemId).maybeSingle();
     if (existing) await supabase.from("inventory").update({ stock }).eq("id", existing.id);
     else await supabase.from("inventory").insert({ location_id: locId, item_id: itemId, stock });
@@ -1453,6 +1501,8 @@ function Inventory({ activeLoc, can, inv, refreshInv, items, user }) {
   return (
     <div>
       <p className="h1">Inventory</p>
+      <p className="small muted" style={{ marginBottom: 14 }}>Counted items only. Turn tracking on or off per item in Admin → Items.</p>
+      {parentItems.length === 0 && <Empty>No tracked items yet.</Empty>}
       {locs.map(loc => <div key={loc.id} style={{ marginBottom: "1.5rem" }}>
         <p className="eyebrow brand" style={{ marginBottom: 8 }}>{loc.name}</p>
         {parentItems.map(parent => {
@@ -1502,7 +1552,7 @@ function ItemLabelFields({ value, onChange }) {
   </div>;
 }
 
-function Admin({ users, refreshUsers, items, refreshItems, user, can, printerIps = {}, setPrinterIps, paperOn = {}, setPaperOn }) {
+function Admin({ users, refreshUsers, items, refreshItems, user, can, paperOn = {}, setPaperOn, alertEmails = {}, setAlertEmails }) {
   const [tab, setTab] = useState("users");
   const isAdmin = can("admin");
   // Managers only see and manage clerks at their own store
@@ -1515,14 +1565,16 @@ function Admin({ users, refreshUsers, items, refreshItems, user, can, printerIps
     if (users.find(u => u.pin === p && u.id !== excludeId)) return "That PIN is already in use.";
     return "";
   };
-  const [printerEdits, setPrinterEdits] = useState({});
-  const [printerSaving, setPrinterSaving] = useState({});
+  const [alertEdits, setAlertEdits] = useState({});
+  const [storeSaving, setStoreSaving] = useState({});
+  const [testMsg, setTestMsg] = useState({});
   const [name, setName] = useState("");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [role, setRole] = useState("clerk");
   const [locationId, setLocationId] = useState(user.location_id);
-  const [ni, setNi] = useState({ name: "", parent_id: "", sold_by: "each", label_mode: "default" });
+  const [ni, setNi] = useState({ name: "", short_name: "", category: "", parent_id: "", sold_by: "each", label_mode: "default", tracked: false });
+  const categories = [...new Set(items.map(i => i.category).filter(Boolean))].sort();
   const [ue, setUe] = useState("");
   const [ie, setIe] = useState("");
   const [editingUser, setEditingUser] = useState(null);
@@ -1590,10 +1642,13 @@ function Admin({ users, refreshUsers, items, refreshItems, user, can, printerIps
       parent_id: ni.parent_id || null,
       sold_by: ni.sold_by || "each",
       label_mode: ni.label_mode || "default",
+      category: ni.parent_id ? (items.find(i => i.id === ni.parent_id)?.category || null) : (ni.category.trim() || "Other"),
+      short_name: ni.short_name.trim() || null,
+      tracked: !ni.parent_id && !!ni.tracked,
     });
     if (error) { setIe(error.message); return; }
     await refreshItems();
-    setNi({ name: "", parent_id: "", sold_by: "each", label_mode: "default" }); setIe("");
+    setNi({ name: "", short_name: "", category: "", parent_id: "", sold_by: "each", label_mode: "default", tracked: false }); setIe("");
   };
 
   const saveEditItem = async () => {
@@ -1603,6 +1658,9 @@ function Admin({ users, refreshUsers, items, refreshItems, user, can, printerIps
       active: editingItem.active,
       sold_by: editingItem.sold_by || "each",
       label_mode: editingItem.label_mode || "default",
+      category: editingItem.parent_id ? (items.find(i => i.id === editingItem.parent_id)?.category || null) : ((editingItem.category || "").trim() || "Other"),
+      short_name: (editingItem.short_name || "").trim() || null,
+      tracked: !editingItem.parent_id && !!editingItem.tracked,
     }).eq("id", editingItem.id);
     if (error) { alert(`Couldn't save item: ${error.message}`); return; }
     await refreshItems();
@@ -1632,7 +1690,7 @@ function Admin({ users, refreshUsers, items, refreshItems, user, can, printerIps
     <div>
       <p className="h1">{isAdmin ? "Admin" : "Users"}</p>
       {isAdmin && <div className="pills" style={{ marginBottom: 16 }}>
-        {[["users", "Users"], ["items", "Items"], ["gmail", "Gmail"], ["printers", "Printers"]].map(([t, l]) => <Pill key={t} on={tab === t} onClick={() => { setTab(t); if (t === "gmail") loadGmailTokens(); }}>{l}</Pill>)}
+        {[["users", "Users"], ["items", "Items"], ["gmail", "Gmail"], ["printers", "Store settings"]].map(([t, l]) => <Pill key={t} on={tab === t} onClick={() => { setTab(t); if (t === "gmail") loadGmailTokens(); }}>{l}</Pill>)}
       </div>}
 
       {tab === "gmail" && <div>
@@ -1717,13 +1775,20 @@ function Admin({ users, refreshUsers, items, refreshItems, user, can, printerIps
       {tab === "items" && <div>
         <Card style={{ marginBottom: 16 }}>
           <p className="h2" style={{ marginBottom: 12 }}>Add item</p>
-          <Field label="Item name"><Input value={ni.name} onChange={e => setNi(f => ({ ...f, name: e.target.value }))} placeholder="Item name" onKeyDown={e => e.key === "Enter" && addI()} /></Field>
-          <Field label="Parent item" hint="Optional — for shared inventory pools">
-            <Select value={ni.parent_id} onChange={e => setNi(f => ({ ...f, parent_id: e.target.value }))}>
-              <option value="">No parent — standalone item</option>
-              {parentItems.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-            </Select>
-          </Field>
+          <Field label="Item name" hint="Full name — prints on labels and receipts"><Input value={ni.name} onChange={e => setNi(f => ({ ...f, name: e.target.value }))} placeholder="e.g. Bone In Turkey Breast 12-14 lb" onKeyDown={e => e.key === "Enter" && addI()} /></Field>
+          <div className="grid2">
+            <Field label="Pill label" hint="Short name shown on the order screen"><Input value={ni.short_name} onChange={e => setNi(f => ({ ...f, short_name: e.target.value }))} placeholder="e.g. Bone-In 12-14 lb" /></Field>
+            <Field label="Parent item" hint="For plain / oven-ready variants of a pool">
+              <Select value={ni.parent_id} onChange={e => setNi(f => ({ ...f, parent_id: e.target.value }))}>
+                <option value="">None — shows as its own pill</option>
+                {parentItems.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+              </Select>
+            </Field>
+          </div>
+          {!ni.parent_id && <div className="grid2">
+            <Field label="Category" hint="First pill the clerk taps"><Input list="cat-list" value={ni.category} onChange={e => setNi(f => ({ ...f, category: e.target.value }))} placeholder="Turkeys, Turkey Breast, Chop Meat, Other" /><datalist id="cat-list">{categories.map(c => <option key={c} value={c} />)}</datalist></Field>
+            <Field label="Inventory"><label className="toggle" style={{ marginTop: 2 }}><Toggle on={!!ni.tracked} onChange={v => setNi(f => ({ ...f, tracked: v }))} label={ni.tracked ? "Counted — sells out" : "Not counted"} /></label></Field>
+          </div>}
           <ItemLabelFields value={ni} onChange={ch => setNi(f => ({ ...f, ...ch }))} />
           {ie && <p className="xs danger" style={{ marginBottom: 10 }}>{ie}</p>}
           <Button variant="primary" icon="plus" onClick={addI}>Add item</Button>
@@ -1734,6 +1799,11 @@ function Admin({ users, refreshUsers, items, refreshItems, user, can, printerIps
             {editingItem?.id === parent.id ? (
               <div>
                 <Field label="Name"><Input value={editingItem.name} onChange={e => setEditingItem(f => ({ ...f, name: e.target.value }))} /></Field>
+                <div className="grid2">
+                  <Field label="Pill label"><Input value={editingItem.short_name || ""} onChange={e => setEditingItem(f => ({ ...f, short_name: e.target.value }))} /></Field>
+                  <Field label="Category"><Input list="cat-list" value={editingItem.category || ""} onChange={e => setEditingItem(f => ({ ...f, category: e.target.value }))} /></Field>
+                </div>
+                <Field label="Inventory"><Toggle on={!!editingItem.tracked} onChange={v => setEditingItem(f => ({ ...f, tracked: v }))} label={editingItem.tracked ? "Counted — sells out when the pool hits 0" : "Not counted — always orderable"} /></Field>
                 <ItemLabelFields value={editingItem} onChange={ch => setEditingItem(f => ({ ...f, ...ch }))} />
                 <div className="hstack">
                   <Button variant="primary" onClick={saveEditItem}>Save</Button>
@@ -1743,8 +1813,8 @@ function Admin({ users, refreshUsers, items, refreshItems, user, can, printerIps
             ) : (
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
                 <div style={{ minWidth: 0 }}>
-                  <p style={{ fontWeight: children.length > 0 ? 600 : 500 }}>{parent.name}</p>
-                  {children.length > 0 && <p className="xs muted">Shared pool</p>}
+                  <p style={{ fontWeight: children.length > 0 ? 600 : 500 }}>{parent.name} {parent.short_name && <span className="muted" style={{ fontWeight: 400 }}>· pill: {parent.short_name}</span>}</p>
+                  <p className="xs muted">{parent.category || "Other"}{children.length > 0 ? " · shared pool" : ""}{parent.tracked ? " · counted" : ""}</p>
                   <p className="xs faint">{labelRuleText(parent)}</p>
                 </div>
                 <div className="hstack" style={{ flexWrap: "nowrap" }}>
@@ -1759,6 +1829,7 @@ function Admin({ users, refreshUsers, items, refreshItems, user, can, printerIps
                   {editingItem?.id === child.id ? (
                     <div style={{ flex: 1 }}>
                       <Field label="Name"><Input value={editingItem.name} onChange={e => setEditingItem(f => ({ ...f, name: e.target.value }))} /></Field>
+                      <Field label="Pill label" hint="e.g. Plain / Oven Ready"><Input value={editingItem.short_name || ""} onChange={e => setEditingItem(f => ({ ...f, short_name: e.target.value }))} /></Field>
                       <Field label="Parent">
                         <Select value={editingItem.parent_id || ""} onChange={e => setEditingItem(f => ({ ...f, parent_id: e.target.value || null }))}>
                           <option value="">No parent</option>
@@ -1773,7 +1844,7 @@ function Admin({ users, refreshUsers, items, refreshItems, user, can, printerIps
                     </div>
                   ) : (
                     <>
-                      <span className="small ellipsis">↳ {child.name} <span className="xs faint">· {labelRuleText(child)}</span></span>
+                      <span className="small ellipsis">↳ {child.short_name ? <b>{child.short_name}</b> : null} {child.name} <span className="xs faint">· {labelRuleText(child)}</span></span>
                       <div className="hstack" style={{ flexWrap: "nowrap" }}>
                         <Button variant="ghost" size="sm" onClick={() => setEditingItem({ ...child })}>Edit</Button>
                         <Button variant="ghost" size="sm" className={child.active === false ? "ok" : "muted"} onClick={() => togI(child.id, child.active)}>{child.active === false ? "Enable" : "Disable"}</Button>
@@ -1789,19 +1860,19 @@ function Admin({ users, refreshUsers, items, refreshItems, user, can, printerIps
 
       {tab === "printers" && <div>
         <p className="small muted" style={{ marginBottom: 14 }}>
-          Email is the default receipt. Turn on <b>Paper receipts</b> for a store to show the Print button on the order confirmation screen.
+          Email is the default receipt. <b>Paper receipts</b> adds a Print button on the confirmation screen (needs the store's relay running). The <b>alert email</b> gets a message whenever a manager overrides a sold-out item.
         </p>
         {LOCS.map(loc => {
-          const current = printerIps[loc.id] || "";
-          const edited = printerEdits[loc.id] !== undefined ? printerEdits[loc.id] : current;
-          const saving = printerSaving[loc.id];
-          const savePrinter = async () => {
-            setPrinterSaving(s => ({ ...s, [loc.id]: true }));
-            const ip = (printerEdits[loc.id] || "").trim();
-            await supabase.from("printer_settings").upsert({ location_id: loc.id, printer_ip: ip || null }, { onConflict: "location_id" });
-            setPrinterIps(prev => ({ ...prev, [loc.id]: ip || null }));
-            setPrinterEdits(e => { const n = { ...e }; delete n[loc.id]; return n; });
-            setPrinterSaving(s => ({ ...s, [loc.id]: false }));
+          const currentAlert = alertEmails[loc.id] || "";
+          const editedAlert = alertEdits[loc.id] !== undefined ? alertEdits[loc.id] : currentAlert;
+          const saving = storeSaving[loc.id];
+          const saveAlert = async () => {
+            setStoreSaving(s => ({ ...s, [loc.id]: true }));
+            const v = editedAlert.trim();
+            const { error } = await supabase.from("printer_settings").upsert({ location_id: loc.id, alert_email: v || null }, { onConflict: "location_id" });
+            if (error) alert("Could not save: " + error.message);
+            else { setAlertEmails(prev => ({ ...prev, [loc.id]: v })); setAlertEdits(e => { const n = { ...e }; delete n[loc.id]; return n; }); }
+            setStoreSaving(s => ({ ...s, [loc.id]: false }));
           };
           const paper = !!paperOn[loc.id];
           const togglePaper = async (next) => {
@@ -1809,17 +1880,31 @@ function Admin({ users, refreshUsers, items, refreshItems, user, can, printerIps
             const { error } = await supabase.from("printer_settings").upsert({ location_id: loc.id, paper_receipts_enabled: next }, { onConflict: "location_id" });
             if (error) { setPaperOn(p => ({ ...p, [loc.id]: paper })); alert("Could not save: " + error.message); }
           };
+          const testPrint = async () => {
+            setTestMsg(m => ({ ...m, [loc.id]: "Sending test…" }));
+            const sample = { id: "test", location_id: loc.id, customer_name: "Test Print", customer_phone: loc.phone, order_date: tod(), order_time: nowT(), pickup_date: tod(), pickup_time: "12:00", notes: "This is a test from Admin → Store settings.", order_seq: 0, daily_number: 0, invoice_number: 0, taken_by: user.name, status: "pending" };
+            const sampleItems = [{ order_id: "test", item_id: items[0]?.id, quantity: 1 }];
+            try {
+              const res = await fetch("/api/print-relay", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ locationId: loc.id, order: sample, orderItems: sampleItems, items, loc }) });
+              const data = await res.json().catch(() => ({}));
+              setTestMsg(m => ({ ...m, [loc.id]: res.ok && data.ok ? "Printed — check the printer." : `Failed: ${data.error || res.status}` }));
+            } catch (e) { setTestMsg(m => ({ ...m, [loc.id]: `Failed: ${e.message}` })); }
+          };
           return (
             <Card key={loc.id} tight style={{ marginBottom: 8 }}>
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 6 }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10, marginBottom: 10, flexWrap: "wrap" }}>
                 <p style={{ fontWeight: 600 }}>{loc.name}</p>
-                <Toggle on={paper} onChange={togglePaper} label={`Paper receipts ${paper ? "on" : "off"}`} />
+                <div className="hstack">
+                  <Toggle on={paper} onChange={togglePaper} label={`Paper receipts ${paper ? "on" : "off"}`} />
+                  {paper && <Button size="sm" icon="printer" onClick={testPrint}>Test print</Button>}
+                </div>
               </div>
-              <div className="hstack" style={{ flexWrap: "nowrap", opacity: paper ? 1 : 0.5 }}>
-                <Input mono value={edited} onChange={e => setPrinterEdits(prev => ({ ...prev, [loc.id]: e.target.value }))} placeholder="e.g. 192.168.4.200" style={{ flex: 1 }} />
-                <Button variant="primary" onClick={savePrinter} disabled={saving || edited === current}>{saving ? "Saving…" : "Save"}</Button>
+              {testMsg[loc.id] && <p className={cx("xs", testMsg[loc.id].startsWith("Failed") ? "danger" : "ok")} style={{ marginBottom: 8 }}>{testMsg[loc.id]}</p>}
+              <div className="hstack" style={{ flexWrap: "nowrap" }}>
+                <Input type="email" value={editedAlert} onChange={e => setAlertEdits(prev => ({ ...prev, [loc.id]: e.target.value }))} placeholder="Alert email for stock overrides" style={{ flex: 1 }} />
+                <Button variant="primary" onClick={saveAlert} disabled={saving || editedAlert === currentAlert}>{saving ? "Saving…" : "Save"}</Button>
               </div>
-              {current && <p className="xs muted" style={{ marginTop: 6 }}>Saved printer address: {current}</p>}
+              {!currentAlert && <p className="xs warn" style={{ marginTop: 6 }}>No alert email — overrides won't notify anyone.</p>}
             </Card>
           );
         })}
