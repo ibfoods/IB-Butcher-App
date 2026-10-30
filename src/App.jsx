@@ -23,6 +23,16 @@ const tod = () => ymd(new Date());
 const nowT = () => new Date().toTimeString().slice(0, 5);
 const LOGO_URL = "/logo.jpg";
 
+// ── Session persistence ──────────────────────────────────────────────────────
+// Login survives reloads / relaunches via localStorage; an app-wide inactivity
+// timeout (Admin → Store settings) drops the user back to the PIN pad.
+const SESSION_KEY = "ib_session_v1";
+const TIMEOUT_OPTIONS = [[15, "15 minutes"], [60, "1 hour"], [240, "4 hours"], [720, "12 hours"], [1440, "24 hours"], [0, "Never (until signed out)"]];
+const readSession = () => { try { return JSON.parse(localStorage.getItem(SESSION_KEY) || "null"); } catch { return null; } };
+const writeSession = (sess) => { try { if (sess) localStorage.setItem(SESSION_KEY, JSON.stringify(sess)); else localStorage.removeItem(SESSION_KEY); } catch {} };
+const touchSession = () => { const sess = readSession(); if (sess) writeSession({ ...sess, last: Date.now() }); };
+const sessionExpired = (sess, timeoutMin) => !!sess && timeoutMin > 0 && Date.now() - (sess.last || 0) > timeoutMin * 60000;
+
 function fmtDate(d) {
   if (!d) return "";
   const [y, m, day] = d.split("-");
@@ -344,12 +354,13 @@ export default function App() {
   const [alertEmails, setAlertEmails] = useState({});
   const [activeLoc, setActiveLoc] = useState("");
   const [ready, setReady] = useState(false);
+  const [timeoutMin, setTimeoutMin] = useState(240);
   const [loadError, setLoadError] = useState("");
 
   const loadAll = useCallback(async () => {
     setLoadError("");
     try {
-      const [u, o, oi, i, it, pr, cu] = await Promise.all([
+      const [u, o, oi, i, it, pr, cu, st] = await Promise.all([
         supabase.from("users").select("*"),
         supabase.from("orders").select("*"),
         supabase.from("order_items").select("*"),
@@ -357,6 +368,7 @@ export default function App() {
         supabase.from("items").select("*"),
         supabase.from("printer_settings").select("*"),
         supabase.from("customers").select("*"),
+        supabase.from("app_settings").select("*"),
       ]);
       const failed = [u, o, oi, i, it, pr, cu].find(r => r.error);
       if (failed) throw new Error(failed.error.message);
@@ -373,6 +385,16 @@ export default function App() {
       setPrinterIps(ipMap);
       setPaperOn(paperMap);
       setAlertEmails(alertMap);
+      const settings = {}; (st.data || []).forEach(r => { settings[r.key] = r.value; });
+      const tmo = parseInt(settings.session_timeout_minutes ?? "240", 10);
+      setTimeoutMin(Number.isFinite(tmo) ? tmo : 240);
+      // Restore a saved login unless it has gone idle past the timeout
+      const sess = readSession();
+      if (sess && !sessionExpired(sess, Number.isFinite(tmo) ? tmo : 240)) {
+        const su = (u.data || []).find(x => x.id === sess.userId);
+        if (su) { setUser(su); setActiveLoc(sess.activeLoc ?? su.location_id); setView(sess.view || "new_order"); touchSession(); }
+        else writeSession(null);
+      } else if (sess) writeSession(null);
       setReady(true);
     } catch (e) {
       console.error("Initial load failed", e);
@@ -417,7 +439,23 @@ export default function App() {
   });
 
   const can = (min) => { const h = ["clerk", "manager", "admin", "master_admin"]; return h.indexOf(user?.role) >= h.indexOf(min); };
-  const logout = () => { setUser(null); setView("login"); };
+  const logout = useCallback(() => { writeSession(null); setUser(null); setView("login"); }, []);
+  const login = (u) => { setUser(u); setActiveLoc(u.location_id); setView("new_order"); writeSession({ userId: u.id, activeLoc: u.location_id, view: "new_order", last: Date.now() }); };
+
+  // Keep the saved session in step with where the user is
+  useEffect(() => { if (user) { const sess = readSession(); if (sess) writeSession({ ...sess, activeLoc, view, last: Date.now() }); } }, [user, activeLoc, view]);
+  // Inactivity timeout: any interaction touches the session; a timer checks it
+  useEffect(() => {
+    if (!user) return;
+    const touch = () => touchSession();
+    const evs = ["pointerdown", "keydown", "touchstart"];
+    evs.forEach(e => window.addEventListener(e, touch, { passive: true }));
+    const check = () => { if (sessionExpired(readSession(), timeoutMin)) logout(); };
+    const id = setInterval(check, 30000);
+    const onVis = () => { if (document.visibilityState === "visible") check(); };
+    document.addEventListener("visibilitychange", onVis);
+    return () => { evs.forEach(e => window.removeEventListener(e, touch)); clearInterval(id); document.removeEventListener("visibilitychange", onVis); };
+  }, [user, timeoutMin, logout]);
 
   if (loadError) return (
     <div className="shell" style={{ paddingTop: "4rem", maxWidth: 420 }}>
@@ -426,7 +464,7 @@ export default function App() {
     </div>
   );
   if (!ready) return <Loading />;
-  if (view === "login") return <Login users={users} onLogin={u => { setUser(u); setActiveLoc(u.location_id); setView("new_order"); }} />;
+  if (view === "login") return <Login users={users} onLogin={login} />;
 
   const loc = activeLoc ? LOCS.find(l => l.id === activeLoc) : null;
 
@@ -439,7 +477,7 @@ export default function App() {
         {view === "customers" && <Customers customers={customers} refreshCustomers={refreshCustomers} orders={orders} orderItemsMap={orderItemsMap} items={items} activeLoc={activeLoc} />}
         {view === "reports" && <Reports key={activeLoc} activeLoc={activeLoc} orders={orders} orderItemsMap={orderItemsMap} items={items} user={user} can={can} />}
         {view === "inventory" && can("manager") && <Inventory activeLoc={activeLoc} can={can} inv={inv} refreshInv={refreshInv} items={items} user={user} />}
-        {view === "admin" && can("manager") && <Admin users={users} refreshUsers={refreshUsers} items={items} refreshItems={refreshItems} user={user} can={can} paperOn={paperOn} setPaperOn={setPaperOn} alertEmails={alertEmails} setAlertEmails={setAlertEmails} />}
+        {view === "admin" && can("manager") && <Admin users={users} refreshUsers={refreshUsers} items={items} refreshItems={refreshItems} user={user} can={can} paperOn={paperOn} setPaperOn={setPaperOn} alertEmails={alertEmails} setAlertEmails={setAlertEmails} timeoutMin={timeoutMin} setTimeoutMin={setTimeoutMin} />}
       </div>
     </div>
   );
@@ -1566,7 +1604,12 @@ function ItemLabelFields({ value, onChange }) {
   </div>;
 }
 
-function Admin({ users, refreshUsers, items, refreshItems, user, can, paperOn = {}, setPaperOn, alertEmails = {}, setAlertEmails }) {
+function Admin({ users, refreshUsers, items, refreshItems, user, can, paperOn = {}, setPaperOn, alertEmails = {}, setAlertEmails, timeoutMin = 240, setTimeoutMin }) {
+  const saveTimeout = async (v) => {
+    const prev = timeoutMin; setTimeoutMin(v);
+    const { error } = await supabase.from("app_settings").upsert({ key: "session_timeout_minutes", value: String(v), updated_at: new Date().toISOString() }, { onConflict: "key" });
+    if (error) { setTimeoutMin(prev); alert("Could not save: " + error.message); }
+  };
   const [tab, setTab] = useState("users");
   const isAdmin = can("admin");
   // Managers only see and manage clerks at their own store
@@ -1873,6 +1916,16 @@ function Admin({ users, refreshUsers, items, refreshItems, user, can, paperOn = 
       </div>}
 
       {tab === "printers" && <div>
+        <Card style={{ marginBottom: 16 }}>
+          <p className="h2" style={{ marginBottom: 4 }}>Sign-in</p>
+          <p className="small muted" style={{ marginBottom: 10 }}>Applies to every device. A user stays signed in until they've been idle this long, then the app returns to the PIN pad. Reloading or reopening the app does not sign anyone out.</p>
+          <Field label="Stay signed in for">
+            <Select value={String(timeoutMin)} onChange={e => saveTimeout(parseInt(e.target.value, 10))} style={{ maxWidth: 320 }}>
+              {TIMEOUT_OPTIONS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+            </Select>
+          </Field>
+          {timeoutMin === 0 && <p className="xs warn">On a shared counter iPad, "Never" means the last person's PIN stays on every order until someone taps Sign out.</p>}
+        </Card>
         <p className="small muted" style={{ marginBottom: 14 }}>
           Email is the default receipt. <b>Paper receipts</b> adds a Print button on the confirmation screen (needs the store's relay running). The <b>alert email</b> gets a message whenever a manager overrides a sold-out item.
         </p>

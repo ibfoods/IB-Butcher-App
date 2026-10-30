@@ -98,3 +98,15 @@ update public.items set category = 'Other', short_name = case
     when name ilike 'Bone-In Spiral Ham%' then 'Spiral Ham 1/2'
     else trim(name) end
   where category is null;
+
+-- ── App-wide settings (Oct 30): session timeout ───────────────────────────
+create table if not exists public.app_settings (
+  key text primary key,
+  value text,
+  updated_at timestamptz not null default now()
+);
+alter table public.app_settings enable row level security;
+drop policy if exists "allow all" on public.app_settings;
+create policy "allow all" on public.app_settings for all to public using (true) with check (true);
+insert into public.app_settings (key, value) values ('session_timeout_minutes', '240')
+on conflict (key) do nothing;
