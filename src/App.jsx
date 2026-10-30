@@ -525,13 +525,17 @@ function Nav({ user, loc, activeLoc, setActiveLoc, view, setView, can, onLogout 
   const homeLoc = LOCS.find(l => l.id === user.location_id);
   const awayFromHome = activeLoc !== user.location_id;
   const canSwitch = can("manager");
-  const tabs = [
-    { id: "orders", label: "Orders" },
+  // Order-taking lives on phones/iPads; reports, inventory and admin are desk work.
+  // "desk" tabs collapse into a More menu on narrow screens.
+  const deskTabs = [
     { id: "customers", label: "Customers" },
     { id: "reports", label: "Reports" },
     ...(can("manager") ? [{ id: "inventory", label: "Inventory" }] : []),
     ...(can("manager") ? [{ id: "admin", label: can("admin") ? "Admin" : "Users" }] : []),
   ];
+  const [more, setMore] = useState(false);
+  const go = (id) => { setView(id); setMore(false); };
+  const onDesk = deskTabs.some(t => t.id === view);
   return (
     <div className={cx("nav", awayFromHome && "away")}>
       <div className="nav-inner">
@@ -553,13 +557,21 @@ function Nav({ user, loc, activeLoc, setActiveLoc, view, setView, can, onLogout 
               <p className="xs muted">{user.name} · {ROLES[user.role]}</p>
             </div>
           </div>
-          <div className="nav-actions">
-            <Button variant={view === "new_order" ? "primary" : "outline"} size="sm" icon="plus" onClick={() => setView("new_order")}>New order</Button>
-            <Button variant="secondary" size="sm" onClick={onLogout}>Sign out</Button>
-          </div>
+          <Button variant="secondary" size="sm" onClick={onLogout}>Sign out</Button>
         </div>
         <div className="nav-tabs">
-          {tabs.map(t => <button key={t.id} type="button" className={cx("tab", view === t.id && "on")} onClick={() => setView(t.id)}>{t.label}</button>)}
+          <button type="button" className={cx("tab", "tab-main", view === "new_order" && "on")} onClick={() => go("new_order")}><Icon name="plus" size={16} />New order</button>
+          <button type="button" className={cx("tab", "tab-main", view === "orders" && "on")} onClick={() => go("orders")}>Orders</button>
+          {deskTabs.map(t => <button key={t.id} type="button" className={cx("tab", "tab-desk", view === t.id && "on")} onClick={() => go(t.id)}>{t.label}</button>)}
+          <div className="tab-more-wrap">
+            <button type="button" className={cx("tab", "tab-more", onDesk && "on")} onClick={() => setMore(m => !m)}>{onDesk ? deskTabs.find(t => t.id === view)?.label : "More"} <Icon name="chevron" size={14} style={{ transform: more ? "rotate(-90deg)" : "rotate(90deg)" }} /></button>
+            {more && <>
+              <div className="tab-more-bg" onClick={() => setMore(false)} />
+              <div className="tab-more-menu">
+                {deskTabs.map(t => <button key={t.id} type="button" className={cx("tab-more-item", view === t.id && "on")} onClick={() => go(t.id)}>{t.label}</button>)}
+              </div>
+            </>}
+          </div>
         </div>
       </div>
     </div>

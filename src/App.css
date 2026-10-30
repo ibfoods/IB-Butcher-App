@@ -136,20 +136,31 @@ input[type="checkbox"] { width: 20px; height: 20px; accent-color: var(--brand); 
 
 /* ── Shell ───────────────────────────────────────────────────────────────── */
 .shell { max-width: 880px; margin: 0 auto; padding: 16px; }
-.nav { background: var(--card); border-bottom: 1px solid var(--line); padding: 10px 16px 0; transition: background .15s; }
+.nav { background: var(--card); border-bottom: 1px solid var(--line); padding: 8px 16px 0; transition: background .15s; position: sticky; top: 0; z-index: 50; }
 .nav.away { background: var(--warn-bg); border-bottom: 2px solid var(--warn); }
 .nav-inner { max-width: 880px; margin: 0 auto; }
-.nav-top { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 6px; flex-wrap: wrap; }
-.nav-actions { display: flex; gap: 8px; flex-shrink: 0; }
-@media (max-width: 560px) { .nav-actions { width: 100%; } .nav-actions .btn { flex: 1; } }
-.nav-tabs { display: flex; gap: 4px; overflow-x: auto; scrollbar-width: none; }
-.nav-tabs::-webkit-scrollbar { display: none; }
+.nav-top { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 4px; }
+.nav-tabs { display: flex; gap: 2px; align-items: stretch; }
 .tab {
-  min-height: var(--tap); padding: 0 14px; background: none; border: none;
+  min-height: var(--tap); padding: 0 14px; background: none; border: none; display: inline-flex; align-items: center; gap: 6px;
   border-bottom: 3px solid transparent; color: var(--muted); font-size: var(--fs-md); font-weight: 500; white-space: nowrap;
   touch-action: manipulation; -webkit-tap-highlight-color: transparent;
 }
 .tab.on { color: var(--brand); border-bottom-color: var(--brand); font-weight: 600; }
+.tab-main { font-weight: 600; color: var(--ink); }
+.tab-more-wrap { position: relative; margin-left: auto; display: none; }
+.tab-more-bg { position: fixed; inset: 0; z-index: 60; }
+.tab-more-menu { position: absolute; right: 0; top: 100%; z-index: 61; background: var(--card); border: 1px solid var(--line); border-radius: var(--r-md); box-shadow: 0 10px 30px rgba(0,0,0,.14); min-width: 180px; padding: 6px; }
+.tab-more-item { display: block; width: 100%; text-align: left; background: none; border: none; padding: 12px 14px; border-radius: var(--r-sm); font-size: var(--fs-md); color: var(--text); min-height: var(--tap); }
+.tab-more-item.on { color: var(--brand); font-weight: 600; background: var(--brand-tint); }
+.tab-more-item:hover { background: var(--line-soft); }
+/* Phones and portrait iPads: only New order / Orders in the strip; desk work behind More */
+@media (max-width: 760px) {
+  .tab-desk { display: none; }
+  .tab-more-wrap { display: block; }
+  .tab-main { flex: 1; justify-content: center; }
+  .nav-top .monogram { display: none; }
+}
 .monogram { width: 36px; height: 36px; border-radius: 50%; background: var(--brand); color: #fff; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; flex-shrink: 0; }
 
 /* ── Modal ───────────────────────────────────────────────────────────────── */
