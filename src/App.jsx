@@ -27,10 +27,11 @@ const LOGO_URL = "/logo.jpg";
 // Login survives reloads / relaunches via localStorage; an app-wide inactivity
 // timeout (Admin → Store settings) drops the user back to the PIN pad.
 const SESSION_KEY = "ib_session_v1";
-const TIMEOUT_OPTIONS = [[15, "15 minutes"], [60, "1 hour"], [240, "4 hours"], [720, "12 hours"], [1440, "24 hours"], [0, "Never (until signed out)"]];
+const TIMEOUT_OPTIONS = [[5, "5 minutes"], [15, "15 minutes"], [60, "1 hour"], [240, "4 hours"], [720, "12 hours"], [1440, "24 hours"], [0, "Never (until signed out)"]];
 const readSession = () => { try { return JSON.parse(localStorage.getItem(SESSION_KEY) || "null"); } catch { return null; } };
 const writeSession = (sess) => { try { if (sess) localStorage.setItem(SESSION_KEY, JSON.stringify(sess)); else localStorage.removeItem(SESSION_KEY); } catch {} };
 const touchSession = () => { const sess = readSession(); if (sess) writeSession({ ...sess, last: Date.now() }); };
+let formBusy = false;   // set by NewOrder while an order is half-built; the idle timeout waits
 const sessionExpired = (sess, timeoutMin) => !!sess && timeoutMin > 0 && Date.now() - (sess.last || 0) > timeoutMin * 60000;
 
 function fmtDate(d) {
@@ -450,7 +451,7 @@ export default function App() {
     const touch = () => touchSession();
     const evs = ["pointerdown", "keydown", "touchstart"];
     evs.forEach(e => window.addEventListener(e, touch, { passive: true }));
-    const check = () => { if (sessionExpired(readSession(), timeoutMin)) logout(); };
+    const check = () => { if (!formBusy && sessionExpired(readSession(), timeoutMin)) logout(); };
     const id = setInterval(check, 30000);
     const onVis = () => { if (document.visibilityState === "visible") check(); };
     document.addEventListener("visibilitychange", onVis);
@@ -980,6 +981,8 @@ function NewOrder({ activeLoc, user, orders, refresh, inv, refreshInv, items, se
   }).slice(0, 8) : [];
 
   const canOverride = can("manager");
+  const dirty = !confirming && (lineItems.length > 0 || !!firstName || !!lastName || digits(phone).length > 0);
+  useEffect(() => { formBusy = dirty; return () => { formBusy = false; }; }, [dirty]);
 
   const submit = async () => {
     if (!firstName.trim()) { setErr("First name required."); return; }
@@ -1919,7 +1922,7 @@ function Admin({ users, refreshUsers, items, refreshItems, user, can, paperOn = 
         <Card style={{ marginBottom: 16 }}>
           <p className="h2" style={{ marginBottom: 4 }}>Sign-in</p>
           <p className="small muted" style={{ marginBottom: 10 }}>Applies to every device. A user stays signed in until they've been idle this long, then the app returns to the PIN pad. Reloading or reopening the app does not sign anyone out.</p>
-          <Field label="Stay signed in for">
+          <Field label="Stay signed in for" hint="An order that's half-entered is never interrupted — the timer waits until it's placed or cleared.">
             <Select value={String(timeoutMin)} onChange={e => saveTimeout(parseInt(e.target.value, 10))} style={{ maxWidth: 320 }}>
               {TIMEOUT_OPTIONS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
             </Select>
