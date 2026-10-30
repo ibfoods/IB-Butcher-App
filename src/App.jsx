@@ -553,11 +553,13 @@ function Nav({ user, loc, activeLoc, setActiveLoc, view, setView, can, onLogout 
               <p className="xs muted">{user.name} · {ROLES[user.role]}</p>
             </div>
           </div>
-          <Button variant="secondary" size="sm" onClick={onLogout}>Sign out</Button>
+          <div className="nav-actions">
+            <Button variant={view === "new_order" ? "primary" : "outline"} size="sm" icon="plus" onClick={() => setView("new_order")}>New order</Button>
+            <Button variant="secondary" size="sm" onClick={onLogout}>Sign out</Button>
+          </div>
         </div>
-        <div className="nav-tabs" style={{ alignItems: "center" }}>
+        <div className="nav-tabs">
           {tabs.map(t => <button key={t.id} type="button" className={cx("tab", view === t.id && "on")} onClick={() => setView(t.id)}>{t.label}</button>)}
-          <Button variant={view === "new_order" ? "primary" : "outline"} size="sm" icon="plus" className="nav-new" onClick={() => setView("new_order")}>New order</Button>
         </div>
       </div>
     </div>
