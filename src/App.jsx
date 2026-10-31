@@ -31,6 +31,20 @@ const TIMEOUT_OPTIONS = [[5, "5 minutes"], [15, "15 minutes"], [60, "1 hour"], [
 const readSession = () => { try { return JSON.parse(localStorage.getItem(SESSION_KEY) || "null"); } catch { return null; } };
 const writeSession = (sess) => { try { if (sess) localStorage.setItem(SESSION_KEY, JSON.stringify(sess)); else localStorage.removeItem(SESSION_KEY); } catch {} };
 const touchSession = () => { const sess = readSession(); if (sess) writeSession({ ...sess, last: Date.now() }); };
+// ── Keep devices on the latest version ─────────────────────────────────────
+// Signing in/out never reloads code by itself, so a tab left open can run an
+// old build for days. Sign-out and timeout do a full reload; signed-in devices
+// check for a new build and offer a one-tap refresh.
+const currentBundle = () => document.querySelector('script[src*="/assets/index-"]')?.getAttribute("src") || "";
+async function newerBuildAvailable() {
+  try {
+    const html = await (await fetch("/", { cache: "no-store" })).text();
+    const live = (html.match(/\/assets\/index-[A-Za-z0-9_-]+\.js/) || [])[0];
+    const mine = currentBundle();
+    return !!(live && mine && !mine.endsWith(live));
+  } catch { return false; }
+}
+
 let formBusy = false;   // set by NewOrder while an order is half-built; the idle timeout waits
 const sessionExpired = (sess, timeoutMin) => !!sess && timeoutMin > 0 && Date.now() - (sess.last || 0) > timeoutMin * 60000;
 
@@ -475,7 +489,24 @@ export default function App() {
   });
 
   const can = (min) => { const h = ["clerk", "manager", "admin", "master_admin"]; return h.indexOf(user?.role) >= h.indexOf(min); };
-  const logout = useCallback(() => { writeSession(null); setToken(""); setUser(null); setReady(true); setView("login"); }, []);
+  const logout = useCallback(() => { writeSession(null); setToken(""); window.location.reload(); }, []);
+  const [updateReady, setUpdateReady] = useState(false);
+  useEffect(() => {
+    const check = async () => {
+      if (!(await newerBuildAvailable())) return;
+      // On the PIN pad: just take it — at most once a minute, so a half-propagated deploy can't loop
+      if (!user && !formBusy) {
+        let last = 0; try { last = +sessionStorage.getItem("ib_autoreload") || 0; } catch {}
+        if (Date.now() - last > 60000) { try { sessionStorage.setItem("ib_autoreload", String(Date.now())); } catch {} window.location.reload(); }
+      }
+      if (user) setUpdateReady(true);                      // signed in: offer it, never interrupt
+    };
+    check();
+    const id = setInterval(check, 5 * 60000);
+    const onVis = () => { if (document.visibilityState === "visible") check(); };
+    document.addEventListener("visibilitychange", onVis);
+    return () => { clearInterval(id); document.removeEventListener("visibilitychange", onVis); };
+  }, [user]);
   const login = ({ token, user: u }) => {
     setToken(token);
     writeSession({ userId: u.id, activeLoc: u.location_id, view: "new_order", last: Date.now() });
@@ -512,6 +543,10 @@ export default function App() {
   return (
     <div style={{ minHeight: "100vh" }}>
       <Nav user={user} loc={loc} activeLoc={activeLoc} setActiveLoc={setActiveLoc} view={view} setView={setView} can={can} onLogout={logout} />
+      {updateReady && <div style={{ background: "var(--brand)", color: "#fff", padding: "10px 16px", display: "flex", alignItems: "center", justifyContent: "center", gap: 12, flexWrap: "wrap" }}>
+        <span className="small" style={{ fontWeight: 600 }}>A new version of the app is ready.</span>
+        <Button size="sm" onClick={() => { if (formBusy && !window.confirm("You have an order in progress. Refresh anyway? It will be lost.")) return; window.location.reload(); }}>Refresh now</Button>
+      </div>}
       <div className="shell">
         {view === "orders" && <Orders key={activeLoc} activeLoc={activeLoc} user={user} orders={orders} orderItemsMap={orderItemsMap} refresh={refreshOrders} inv={inv} refreshInv={refreshInv} items={items} can={can} paperOn={paperOn} />}
         {view === "new_order" && <NewOrder key={activeLoc} activeLoc={activeLoc} user={user} orders={orders} refresh={refreshOrders} inv={inv} refreshInv={refreshInv} items={items} setView={setView} paperOn={paperOn} customers={customers} refreshCustomers={refreshCustomers} can={can} />}
