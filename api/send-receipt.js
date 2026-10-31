@@ -1,4 +1,5 @@
 import PDFDocument from "pdfkit";
+import { requireUser } from \"./_auth.js\";
 import { WORDMARK_B64, WORDMARK_BUFFER, WORDMARK_W, WORDMARK_H } from "./_logo.js";
 import { gmailFor, b64lines } from "./_gmail.js";
 import { orderNumberText, orderMonthText, orderSeqText, qtyText } from "./_order.js";
@@ -252,6 +253,7 @@ function makeRawEmail({ from, to, subject, html, pdfBuffer, pdfFilename }) {
 
 export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
+  if (!requireUser(req, res, "clerk")) return;
 
   const { to, locationId, order, orderItems, items, loc } = req.body;
 

@@ -1,3 +1,4 @@
+import { requireUser } from "./_auth.js";
 // Emails the store's alert address when a manager overrides a sold-out item.
 // Sent from that store's own Gmail (same OAuth tokens as receipts).
 import { gmailFor, supabase, rawSimpleEmail } from "./_gmail.js";
@@ -9,6 +10,7 @@ const fmtTime = (t) => { if (!t) return ""; const [h, m] = t.split(":"); const h
 
 export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
+  if (!requireUser(req, res, "clerk")) return;
   const { locationId, order, overs, loc, placedBy } = req.body || {};
   if (!locationId || !order || !Array.isArray(overs) || overs.length === 0) {
     return res.status(400).json({ error: "Missing required fields" });

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
-import { supabase } from "./supabase";
+import { supabase, setToken, getToken, tokenClaims, api } from "./supabase";
 import { findZebraPrinter, printZpl, buildLabels, zplForLabels } from "./zebraPrint";
 import { Button, Card, Pill, Chip, Toggle, Field, Input, Select, Textarea, PasswordInput, Banner, Loading, Empty, Modal, Icon, MadeBy, cx } from "./ui";
 import ItemPicker, { poolFor } from "./ItemPicker";
@@ -122,7 +122,7 @@ async function printReceipt(order, orderItems, items, locs) {
   try {
     const res = await fetch('/api/print-relay', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${getToken()}` },
       body: JSON.stringify({ locationId: order.location_id, order, orderItems, items, loc }),
     });
     const data = await res.json().catch(() => ({}));
@@ -358,11 +358,14 @@ export default function App() {
   const [timeoutMin, setTimeoutMin] = useState(240);
   const [loadError, setLoadError] = useState("");
 
+  // Data loads only once signed in — the anon key alone can read nothing.
   const loadAll = useCallback(async () => {
     setLoadError("");
     try {
+      const claims = tokenClaims();
+      const mgr = ["manager", "admin", "master_admin"].includes(claims?.app_role);
       const [u, o, oi, i, it, pr, cu, st] = await Promise.all([
-        supabase.from("users").select("*"),
+        mgr ? supabase.from("staff").select("*") : Promise.resolve({ data: [] }),
         supabase.from("orders").select("*"),
         supabase.from("order_items").select("*"),
         supabase.from("inventory").select("*"),
@@ -371,8 +374,12 @@ export default function App() {
         supabase.from("customers").select("*"),
         supabase.from("app_settings").select("*"),
       ]);
-      const failed = [u, o, oi, i, it, pr, cu].find(r => r.error);
-      if (failed) throw new Error(failed.error.message);
+      const failed = [u, o, oi, i, it, pr, cu, st].find(r => r.error);
+      if (failed) {
+        // A dead/expired token reads as "permission denied" — send them to the PIN pad, not an error screen
+        if (/JWT|permission|401|denied/i.test(failed.error.message)) { writeSession(null); setToken(""); setUser(null); setView("login"); setReady(true); return; }
+        throw new Error(failed.error.message);
+      }
       setCustomers(cu.data || []);
       setUsers(u.data || []);
       setOrders(o.data || []);
@@ -389,13 +396,6 @@ export default function App() {
       const settings = {}; (st.data || []).forEach(r => { settings[r.key] = r.value; });
       const tmo = parseInt(settings.session_timeout_minutes ?? "240", 10);
       setTimeoutMin(Number.isFinite(tmo) ? tmo : 240);
-      // Restore a saved login unless it has gone idle past the timeout
-      const sess = readSession();
-      if (sess && !sessionExpired(sess, Number.isFinite(tmo) ? tmo : 240)) {
-        const su = (u.data || []).find(x => x.id === sess.userId);
-        if (su) { setUser(su); setActiveLoc(sess.activeLoc ?? su.location_id); setView(sess.view || "new_order"); touchSession(); }
-        else writeSession(null);
-      } else if (sess) writeSession(null);
       setReady(true);
     } catch (e) {
       console.error("Initial load failed", e);
@@ -404,7 +404,20 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    loadAll();
+    const sess = readSession();
+    const claims = tokenClaims();
+    const alive = claims && claims.exp * 1000 > Date.now();
+    if (sess && alive && sess.userId === claims.sub) {
+      // Idle timeout is checked once settings load (loadAll); restore optimistically
+      setUser({ id: claims.sub, name: claims.name, role: claims.app_role, location_id: claims.location_id, username: "" });
+      setActiveLoc(sess.activeLoc ?? claims.location_id);
+      setView(sess.view || "new_order");
+      touchSession();
+      loadAll();
+    } else {
+      writeSession(null); setToken("");
+      setView("login"); setReady(true);
+    }
     // Handle Gmail OAuth redirect
     const params = new URLSearchParams(window.location.search);
     if (params.get("gmailConnected")) {
@@ -416,6 +429,16 @@ export default function App() {
       console.error("Gmail OAuth error:", params.get("gmailError"));
     }
   }, [loadAll]);
+
+  // Once settings are in, enforce the idle timeout on a restored session; keep the token fresh while active
+  useEffect(() => {
+    if (!user || !ready) return;
+    if (sessionExpired(readSession(), timeoutMin)) { logout(); return; }
+    const claims = tokenClaims();
+    if (claims && claims.exp * 1000 - Date.now() < 2 * 3600 * 1000) {
+      api("/api/auth/refresh", {}).then(j => { setToken(j.token); }).catch(() => {});
+    }
+  }, [user, ready, timeoutMin]);   // eslint-disable-line react-hooks/exhaustive-deps
 
   const refreshOrders = useCallback(async () => {
     const { data: o } = await supabase.from("orders").select("*");
@@ -431,7 +454,7 @@ export default function App() {
   }, []);
   const refreshItems = useCallback(async () => { const { data } = await supabase.from("items").select("*"); setItems(data || []); }, []);
   const refreshCustomers = useCallback(async () => { const { data } = await supabase.from("customers").select("*"); setCustomers(data || []); }, []);
-  const refreshUsers = useCallback(async () => { const { data } = await supabase.from("users").select("*"); setUsers(data || []); }, []);
+  const refreshUsers = useCallback(async () => { const { data } = await supabase.from("staff").select("*"); setUsers(data || []); }, []);
 
   const orderItemsMap = {};
   orderItems.forEach(oi => {
@@ -440,8 +463,13 @@ export default function App() {
   });
 
   const can = (min) => { const h = ["clerk", "manager", "admin", "master_admin"]; return h.indexOf(user?.role) >= h.indexOf(min); };
-  const logout = useCallback(() => { writeSession(null); setUser(null); setView("login"); }, []);
-  const login = (u) => { setUser(u); setActiveLoc(u.location_id); setView("new_order"); writeSession({ userId: u.id, activeLoc: u.location_id, view: "new_order", last: Date.now() }); };
+  const logout = useCallback(() => { writeSession(null); setToken(""); setUser(null); setReady(true); setView("login"); }, []);
+  const login = ({ token, user: u }) => {
+    setToken(token);
+    writeSession({ userId: u.id, activeLoc: u.location_id, view: "new_order", last: Date.now() });
+    setUser(u); setActiveLoc(u.location_id); setView("new_order");
+    setReady(false); loadAll();
+  };
 
   // Keep the saved session in step with where the user is
   useEffect(() => { if (user) { const sess = readSession(); if (sess) writeSession({ ...sess, activeLoc, view, last: Date.now() }); } }, [user, activeLoc, view]);
@@ -464,8 +492,8 @@ export default function App() {
       <Button variant="primary" full icon="refresh" style={{ marginTop: 14 }} onClick={loadAll}>Try again</Button>
     </div>
   );
+  if (view === "login") return <Login onLogin={login} />;
   if (!ready) return <Loading />;
-  if (view === "login") return <Login users={users} onLogin={login} />;
 
   const loc = activeLoc ? LOCS.find(l => l.id === activeLoc) : null;
 
@@ -484,7 +512,7 @@ export default function App() {
   );
 }
 
-function Login({ users, onLogin }) {
+function Login({ onLogin }) {
   const [mode, setMode] = useState("pin");
   const [pin, setPin] = useState("");
   const [shake, setShake] = useState(false);
@@ -492,13 +520,15 @@ function Login({ users, onLogin }) {
   const [password, setPassword] = useState("");
   const [err, setErr] = useState("");
 
-  const tryPin = (p) => {
-    const u = users.find(u => u.pin === p);
-    if (!u) { setShake(true); setErr("PIN not recognized."); setTimeout(() => { setShake(false); setPin(""); }, 450); return; }
-    onLogin(u);
+  const [busy, setBusy] = useState(false);
+  const tryPin = async (p) => {
+    setBusy(true);
+    try { onLogin(await api("/api/auth/login", { pin: p })); }
+    catch (e) { setShake(true); setErr(e.message || "PIN not recognized."); setTimeout(() => { setShake(false); setPin(""); }, 450); }
+    finally { setBusy(false); }
   };
   const press = (d) => {
-    if (pin.length >= 4) return;
+    if (pin.length >= 4 || busy) return;
     setErr("");
     const next = pin + d;
     setPin(next);
@@ -516,10 +546,11 @@ function Login({ users, onLogin }) {
     return () => window.removeEventListener("keydown", h);
   });
 
-  const goPw = () => {
-    const u = users.find(u => u.username.toLowerCase() === username.trim().toLowerCase() && u.password === password);
-    if (!u) { setErr("Invalid username or password."); return; }
-    onLogin(u);
+  const goPw = async () => {
+    setBusy(true); setErr("");
+    try { onLogin(await api("/api/auth/login", { username, password })); }
+    catch (e) { setErr(e.message || "Invalid username or password."); }
+    finally { setBusy(false); }
   };
 
   return (
@@ -550,7 +581,7 @@ function Login({ users, onLogin }) {
           <Card style={{ padding: 22, borderRadius: 16 }}>
             <Field label="Username"><Input value={username} onChange={e => setUsername(e.target.value)} onKeyDown={e => e.key === "Enter" && goPw()} placeholder="Username" autoCapitalize="none" /></Field>
             <Field label="Password" error={err}><PasswordInput value={password} onChange={e => setPassword(e.target.value)} onKeyDown={e => e.key === "Enter" && goPw()} placeholder="Password" /></Field>
-            <Button variant="primary" full onClick={goPw}>Sign in</Button>
+            <Button variant="primary" full onClick={goPw} disabled={busy}>{busy ? "Signing in…" : "Sign in"}</Button>
             <Button variant="ghost" full style={{ marginTop: 10 }} icon="back" onClick={() => { setMode("pin"); setErr(""); }}>Use PIN instead</Button>
           </Card>
         )}
@@ -772,7 +803,7 @@ function Orders({ activeLoc, user, orders, orderItemsMap, refresh, inv, refreshI
     try {
       const res = await fetch("/api/send-receipt", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${getToken()}` },
         body: JSON.stringify({ to: detailEmail, locationId: detail.location_id, order: detail, orderItems: orderItemsMap[detail.id] || [], items, loc }),
       });
       setDetailEmailStatus(res.ok ? "sent" : "error");
@@ -1079,7 +1110,7 @@ function NewOrder({ activeLoc, user, orders, refresh, inv, refreshInv, items, se
 
       if (stockOverride) {
         const loc = LOCS.find(l => l.id === locationId);
-        fetch("/api/notify-stock", { method: "POST", headers: { "Content-Type": "application/json" },
+        fetch("/api/notify-stock", { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${getToken()}` },
           body: JSON.stringify({ locationId, order: newOrder, overs: overs.map(o => ({ ...o, item: { sold_by: o.item?.sold_by } })), loc, placedBy: user.name }) })
           .then(r => r.json()).then(j => setOverrideNote(j.ok ? "Store alerted by email." : j.skipped === "no_alert_email" ? "No alert email set for this store (Admin → Store settings)." : `Alert email not sent: ${j.skipped || j.error || ""}`))
           .catch(() => setOverrideNote("Alert email not sent."));
@@ -1103,7 +1134,7 @@ function NewOrder({ activeLoc, user, orders, refresh, inv, refreshInv, items, se
     try {
       const res = await fetch("/api/send-receipt", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${getToken()}` },
         body: JSON.stringify({ to: toAddr, locationId: placedOrder.location_id, order: placedOrder, orderItems: placedOrderItems, items, loc }),
       });
       if (res.ok) { setEmailStatus("sent"); }
@@ -1622,7 +1653,6 @@ function Admin({ users, refreshUsers, items, refreshItems, user, can, paperOn = 
   const validPin = (p, excludeId) => {
     if (!p) return "";
     if (!/^[0-9]{4}$/.test(p)) return "PIN must be exactly 4 digits.";
-    if (users.find(u => u.pin === p && u.id !== excludeId)) return "That PIN is already in use.";
     return "";
   };
   const [alertEdits, setAlertEdits] = useState({});
@@ -1668,8 +1698,8 @@ function Admin({ users, refreshUsers, items, refreshItems, user, can, paperOn = 
     if (!name || !username || !password || !locationId) { setUe("Name, username, password and home store are required."); return; }
     if (users.find(u => u.username.toLowerCase() === username.toLowerCase())) { setUe("Username taken."); return; }
     const pe = validPin(pin); if (pe) { setUe(pe); return; }
-    const { error } = await supabase.from("users").insert({ name, username, password, role: isAdmin ? role : "clerk", location_id: isAdmin ? locationId : user.location_id, pin: pin || null });
-    if (error) { setUe(error.message.includes("users_pin_unique") ? "That PIN is already in use." : error.message); return; }
+    try { await api("/api/users", { name, username, password, pin: pin || null, role: isAdmin ? role : "clerk", location_id: isAdmin ? locationId : user.location_id }); }
+    catch (e) { setUe(e.message); return; }
     await refreshUsers();
     setName(""); setUsername(""); setPassword(""); setPin(""); setRole("clerk"); setLocationId(user.location_id); setUe("");
   };
@@ -1677,18 +1707,21 @@ function Admin({ users, refreshUsers, items, refreshItems, user, can, paperOn = 
   const remU = async id => {
     if (id === user.id) return;
     if (!confirm("Remove user?")) return;
-    await supabase.from("users").delete().eq("id", id);
+    try { await api("/api/users", { id }, "DELETE"); } catch (e) { alert(e.message); return; }
     await refreshUsers();
   };
 
   const saveEditUser = async () => {
-    if (!editingUser.name || !editingUser.username || !editingUser.password || !editingUser.location_id) { setUe("Name, username, password and home store are required."); return; }
+    if (!editingUser.name || !editingUser.username || !editingUser.location_id) { setUe("Name, username and home store are required."); return; }
     const pe = validPin(editingUser.pin, editingUser.id); if (pe) { setUe(pe); return; }
-    const { error } = await supabase.from("users").update({
-      name: editingUser.name, username: editingUser.username, password: editingUser.password,
-      role: isAdmin ? editingUser.role : "clerk", location_id: isAdmin ? editingUser.location_id : user.location_id, pin: editingUser.pin || null,
-    }).eq("id", editingUser.id);
-    if (error) { setUe(error.message.includes("users_pin_unique") ? "That PIN is already in use." : error.message); return; }
+    try {
+      await api("/api/users", {
+        id: editingUser.id, name: editingUser.name, username: editingUser.username,
+        password: editingUser.password || null,                       // blank = keep current
+        pin: editingUser.pinTouched ? (editingUser.pin || "") : undefined,   // untouched = keep current
+        role: isAdmin ? editingUser.role : "clerk", location_id: isAdmin ? editingUser.location_id : user.location_id,
+      }, "PUT");
+    } catch (e) { setUe(e.message); return; }
     await refreshUsers();
     setEditingUser(null); setUe("");
   };
@@ -1805,8 +1838,8 @@ function Admin({ users, refreshUsers, items, refreshItems, user, can, paperOn = 
                 <div className="grid2" style={{ marginBottom: 10 }}>
                   <Input value={editingUser.name} onChange={e => setEditingUser(f => ({ ...f, name: e.target.value }))} placeholder="Full name" />
                   <Input value={editingUser.username} onChange={e => setEditingUser(f => ({ ...f, username: e.target.value }))} placeholder="Username" />
-                  <PasswordInput value={editingUser.password} onChange={e => setEditingUser(f => ({ ...f, password: e.target.value }))} placeholder="Password" />
-                  <Input value={editingUser.pin || ""} inputMode="numeric" maxLength={4} onChange={e => setEditingUser(f => ({ ...f, pin: e.target.value.replace(/\D/g, "").slice(0, 4) }))} placeholder="4-digit PIN" />
+                  <PasswordInput value={editingUser.password || ""} onChange={e => setEditingUser(f => ({ ...f, password: e.target.value }))} placeholder="New password (blank = keep)" />
+                  <Input value={editingUser.pin || ""} inputMode="numeric" maxLength={4} onChange={e => setEditingUser(f => ({ ...f, pin: e.target.value.replace(/\D/g, "").slice(0, 4), pinTouched: true }))} placeholder={editingUser.has_pin ? "New PIN (blank = keep)" : "4-digit PIN"} />
                   {roleSelect(editingUser.role, e => setEditingUser(f => ({ ...f, role: e.target.value })))}
                   {locSelect(editingUser.location_id || "", e => setEditingUser(f => ({ ...f, location_id: e.target.value })))}
                 </div>
@@ -1820,10 +1853,10 @@ function Admin({ users, refreshUsers, items, refreshItems, user, can, paperOn = 
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
                 <div style={{ minWidth: 0 }}>
                   <p style={{ fontWeight: 600 }}>{u.name} <span className="muted" style={{ fontWeight: 400 }}>@{u.username}</span></p>
-                  <p className="xs muted">{ROLES[u.role]} · {LOCS.find(l => l.id === u.location_id)?.name || "No home store"} · {u.pin ? "PIN set" : <span className="warn">No PIN</span>}</p>
+                  <p className="xs muted">{ROLES[u.role]} · {LOCS.find(l => l.id === u.location_id)?.name || "No home store"} · {u.has_pin ? "PIN set" : <span className="warn">No PIN</span>}</p>
                 </div>
                 {canManageUser(u) && <div className="hstack" style={{ flexWrap: "nowrap" }}>
-                  <Button variant="ghost" size="sm" onClick={() => { setEditingUser({ ...u }); setUe(""); }}>Edit</Button>
+                  <Button variant="ghost" size="sm" onClick={() => { setEditingUser({ ...u, password: "", pin: "" }); setUe(""); }}>Edit</Button>
                   {u.id !== user.id && <Button variant="ghost" size="sm" className="danger" onClick={() => remU(u.id)}>Remove</Button>}
                 </div>}
               </div>
@@ -1955,7 +1988,7 @@ function Admin({ users, refreshUsers, items, refreshItems, user, can, paperOn = 
             const sample = { id: "test", location_id: loc.id, customer_name: "Test Print", customer_phone: loc.phone, order_date: tod(), order_time: nowT(), pickup_date: tod(), pickup_time: "12:00", notes: "This is a test from Admin → Store settings.", order_seq: 0, daily_number: 0, invoice_number: 0, taken_by: user.name, status: "pending" };
             const sampleItems = [{ order_id: "test", item_id: items[0]?.id, quantity: 1 }];
             try {
-              const res = await fetch("/api/print-relay", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ locationId: loc.id, order: sample, orderItems: sampleItems, items, loc }) });
+              const res = await fetch("/api/print-relay", { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${getToken()}` }, body: JSON.stringify({ locationId: loc.id, order: sample, orderItems: sampleItems, items, loc }) });
               const data = await res.json().catch(() => ({}));
               setTestMsg(m => ({ ...m, [loc.id]: res.ok && data.ok ? "Printed — check the printer." : `Failed: ${data.error || res.status}` }));
             } catch (e) { setTestMsg(m => ({ ...m, [loc.id]: `Failed: ${e.message}` })); }
