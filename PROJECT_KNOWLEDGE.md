@@ -16,6 +16,8 @@ real Thanksgiving orders on the app (started without Mike's sign-off). Treat pro
 - Alert email per store not set (Admin → Store settings). Sign-in timeout set to 5 min by Mike.
 - Possible: per-store "Taking orders" switch so stores can't go live without approval.
 - `auth-selftest` branch on GitHub is a throwaway — delete it (this session can't delete branches).
+- **Daily Pickup List** — ON HOLD until Tue Nov 3 (Mike is asking the stores how pickup day should run). Spec, findings and pending decisions: Claude project doc `claude/Daily-Pickup-List-Spec.md`. No code written.
+- Revoke the old GitHub PAT that used to live in the Claude project knowledge doc (removed Oct 31; unused).
 
 **Auth (Oct 31)** — see `sql/2026-10-31_auth_hardening.sql`
 - Login: `/api/auth/login` → Postgres `login_with_pin` / `login_with_password` (bcrypt, SECURITY DEFINER,
@@ -40,7 +42,8 @@ removed Oct 31), `renumber_2026_10_31` (old numbers of 6 renumbered no-email Wan
 
 **Other Oct 30–31 changes**: sticky nav (New order + Orders; desk tabs under More on phones); login
 persists across reloads; idle timeout setting (5 min…never); sign-out/timeout does a full reload and
-devices detect new builds; customer email required on new orders (fakes rejected).
+devices detect new builds; customer email required on new orders (fakes rejected); first/last name
+are separate fields in Customers edit, Admin → Users, and the contact list + CSV.
 
 ## Previous start-here (Oct 29, 2026)
 
