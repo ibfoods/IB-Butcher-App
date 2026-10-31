@@ -131,6 +131,14 @@ function emailProblem(raw) {
   return "";
 }
 
+// "Mary Ann Smith" → { first: "Mary Ann", last: "Smith" } (last word is the last name)
+function splitName(full) {
+  const parts = String(full || "").trim().split(/\s+/).filter(Boolean);
+  if (parts.length < 2) return { first: parts[0] || "", last: "" };
+  return { first: parts.slice(0, -1).join(" "), last: parts[parts.length - 1] };
+}
+const joinName = (first, last) => `${String(first || "").trim()} ${String(last || "").trim()}`.trim();
+
 function formatPhone(val) {
   const digits = val.replace(/\D/g, "").slice(0, 10);
   if (digits.length <= 3) return digits.length ? `(${digits}` : "";
@@ -1312,11 +1320,11 @@ function Customers({ customers, refreshCustomers, orders, orderItemsMap, items, 
   }).sort((a, b) => (a.name || "").localeCompare(b.name || ""));
 
   const save = async () => {
-    if (!edit.name?.trim() || !digits(edit.phone)) { setErr("Name and phone are required."); return; }
-    const parts = edit.name.trim().split(" ");
-    const { error } = await supabase.from("customers").update({ name: edit.name.trim(), first_name: parts[0], last_name: parts.slice(1).join(" ") || null, phone: formatPhone(edit.phone), email: edit.email?.trim() || null, notes: edit.notes?.trim() || null, home_location_id: edit.home_location_id || null, updated_at: new Date().toISOString() }).eq("id", edit.id);
+    if (!edit.first_name?.trim() || !edit.last_name?.trim() || !digits(edit.phone)) { setErr("First name, last name and phone are required."); return; }
+    const fullName = joinName(edit.first_name, edit.last_name);
+    const { error } = await supabase.from("customers").update({ name: fullName, first_name: edit.first_name.trim(), last_name: edit.last_name.trim(), phone: formatPhone(edit.phone), email: edit.email?.trim() || null, notes: edit.notes?.trim() || null, home_location_id: edit.home_location_id || null, updated_at: new Date().toISOString() }).eq("id", edit.id);
     if (error) { setErr(error.message.includes("phone_digits") ? "Another customer already has that phone number." : error.message); return; }
-    await refreshCustomers(); setSel({ ...edit }); setEdit(null); setErr("");
+    await refreshCustomers(); setSel({ ...edit, name: fullName }); setEdit(null); setErr("");
   };
 
   if (sel) {
@@ -1328,7 +1336,10 @@ function Customers({ customers, refreshCustomers, orders, orderItemsMap, items, 
         <Card style={{ marginBottom: 14 }}>
           {edit ? (
             <div>
-              <Field label="Name"><Input value={edit.name} onChange={e => setEdit(f => ({ ...f, name: e.target.value }))} /></Field>
+              <div className="grid2">
+                <Field label="First name"><Input value={edit.first_name || ""} onChange={e => setEdit(f => ({ ...f, first_name: e.target.value }))} /></Field>
+                <Field label="Last name"><Input value={edit.last_name || ""} onChange={e => setEdit(f => ({ ...f, last_name: e.target.value }))} /></Field>
+              </div>
               <Field label="Phone"><Input inputMode="tel" value={edit.phone} onChange={e => setEdit(f => ({ ...f, phone: formatPhone(e.target.value) }))} /></Field>
               <Field label="Email"><Input type="email" value={edit.email || ""} onChange={e => setEdit(f => ({ ...f, email: e.target.value }))} /></Field>
               <Field label="Home store"><Select value={edit.home_location_id || ""} onChange={e => setEdit(f => ({ ...f, home_location_id: e.target.value }))}><option value="">— Not set —</option>{LOCS.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}</Select></Field>
@@ -1346,7 +1357,7 @@ function Customers({ customers, refreshCustomers, orders, orderItemsMap, items, 
                 {c.notes && <p className="small brand" style={{ marginTop: 8, background: "var(--brand-tint)", padding: "8px 10px", borderRadius: 8 }}>{c.notes}</p>}
                 <p className="xs muted" style={{ marginTop: 8 }}>{os.length} order{os.length === 1 ? "" : "s"}{homeOf(c) ? ` · Home store: ${locName(homeOf(c))}` : ""}</p>
               </div>
-              <Button variant="outline" size="sm" onClick={() => setEdit({ ...c, home_location_id: homeOf(c) || "" })}>Edit</Button>
+              <Button variant="outline" size="sm" onClick={() => { const sp = splitName(c.name); setEdit({ ...c, first_name: c.first_name || sp.first, last_name: c.last_name || sp.last, home_location_id: homeOf(c) || "" }); }}>Edit</Button>
             </div>
           )}
         </Card>
@@ -1437,8 +1448,11 @@ function Reports({ activeLoc, orders, orderItemsMap, items, user, can }) {
       const it = items.find(i => i.id === li.item_id);
       return `${qtyPrefix(it, li.quantity)}${it?.name || ""}`;
     }).join(", ");
+    const nm = splitName(o.customer_name);
     contactMap[key] = {
       name: o.customer_name,
+      first: nm.first,
+      last: nm.last,
       phone: o.customer_phone,
       email: o.customer_email || "",
       location: l?.name || "",
@@ -1447,16 +1461,17 @@ function Reports({ activeLoc, orders, orderItemsMap, items, user, can }) {
       order_count: (contactMap[key]?.order_count || 0) + 1,
     };
   });
-  const contacts = Object.values(contactMap).sort((a, b) => a.name.localeCompare(b.name));
+  const contacts = Object.values(contactMap).sort((a, b) => a.last.localeCompare(b.last) || a.first.localeCompare(b.first));
   const contactsWithEmail = contacts.filter(c => c.email);
 
   const downloadContactCSV = (emailOnly) => {
     const rows = emailOnly ? contactsWithEmail : contacts;
-    const headers = ["Name", "Phone", "Email", "Location", "Last Order Date", "Last Items Ordered", "Total Orders"];
+    const headers = ["First Name", "Last Name", "Phone", "Email", "Location", "Last Order Date", "Last Items Ordered", "Total Orders"];
     const csv = [
       headers.join(","),
       ...rows.map(c => [
-        `"${c.name}"`,
+        `"${c.first}"`,
+        `"${c.last}"`,
         `"${c.phone}"`,
         `"${c.email}"`,
         `"${c.location}"`,
@@ -1585,10 +1600,11 @@ function Reports({ activeLoc, orders, orderItemsMap, items, user, can }) {
         {contacts.length === 0 ? <Empty>No contacts yet.</Empty> :
           <div className="tbl-wrap">
             <table className="tbl">
-              {th(["Name", "Phone", "Email", "Location", "Last order", "Orders"])}
+              {th(["First", "Last", "Phone", "Email", "Location", "Last order", "Orders"])}
               <tbody>{contacts.map((c, i) => (
                 <tr key={i}>
-                  <td style={{ whiteSpace: "nowrap", fontWeight: 600 }}>{c.name}</td>
+                  <td style={{ whiteSpace: "nowrap", fontWeight: 600 }}>{c.first}</td>
+                  <td style={{ whiteSpace: "nowrap", fontWeight: 600 }}>{c.last}</td>
                   <td style={{ whiteSpace: "nowrap" }}>{c.phone}</td>
                   <td className={c.email ? "" : "faint"}>{c.email || "—"}</td>
                   <td style={{ whiteSpace: "nowrap" }}>{c.location}</td>
@@ -1709,7 +1725,9 @@ function Admin({ users, refreshUsers, items, refreshItems, user, can, paperOn = 
   const [alertEdits, setAlertEdits] = useState({});
   const [storeSaving, setStoreSaving] = useState({});
   const [testMsg, setTestMsg] = useState({});
-  const [name, setName] = useState("");
+  const [firstN, setFirstN] = useState("");
+  const [lastN, setLastN] = useState("");
+  const name = joinName(firstN, lastN);
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [role, setRole] = useState("clerk");
@@ -1746,13 +1764,13 @@ function Admin({ users, refreshUsers, items, refreshItems, user, can, paperOn = 
   }));
 
   const addU = async () => {
-    if (!name || !username || !password || !locationId) { setUe("Name, username, password and home store are required."); return; }
+    if (!firstN.trim() || !lastN.trim() || !username || !password || !locationId) { setUe("First name, last name, username, password and home store are required."); return; }
     if (users.find(u => u.username.toLowerCase() === username.toLowerCase())) { setUe("Username taken."); return; }
     const pe = validPin(pin); if (pe) { setUe(pe); return; }
     try { await api("/api/users", { name, username, password, pin: pin || null, role: isAdmin ? role : "clerk", location_id: isAdmin ? locationId : user.location_id }); }
     catch (e) { setUe(e.message); return; }
     await refreshUsers();
-    setName(""); setUsername(""); setPassword(""); setPin(""); setRole("clerk"); setLocationId(user.location_id); setUe("");
+    setFirstN(""); setLastN(""); setUsername(""); setPassword(""); setPin(""); setRole("clerk"); setLocationId(user.location_id); setUe("");
   };
 
   const remU = async id => {
@@ -1763,11 +1781,12 @@ function Admin({ users, refreshUsers, items, refreshItems, user, can, paperOn = 
   };
 
   const saveEditUser = async () => {
-    if (!editingUser.name || !editingUser.username || !editingUser.location_id) { setUe("Name, username and home store are required."); return; }
+    const editName = joinName(editingUser.first, editingUser.last);
+    if (!editingUser.first?.trim() || !editingUser.last?.trim() || !editingUser.username || !editingUser.location_id) { setUe("First name, last name, username and home store are required."); return; }
     const pe = validPin(editingUser.pin, editingUser.id); if (pe) { setUe(pe); return; }
     try {
       await api("/api/users", {
-        id: editingUser.id, name: editingUser.name, username: editingUser.username,
+        id: editingUser.id, name: editName, username: editingUser.username,
         password: editingUser.password || null,                       // blank = keep current
         pin: editingUser.pinTouched ? (editingUser.pin || "") : undefined,   // untouched = keep current
         role: isAdmin ? editingUser.role : "clerk", location_id: isAdmin ? editingUser.location_id : user.location_id,
@@ -1869,7 +1888,8 @@ function Admin({ users, refreshUsers, items, refreshItems, user, can, paperOn = 
         <Card style={{ marginBottom: 16 }}>
           <p className="h2" style={{ marginBottom: 12 }}>Add user</p>
           <div className="grid2">
-            <Input value={name} onChange={e => setName(e.target.value)} placeholder="Full name" />
+            <Input value={firstN} onChange={e => setFirstN(e.target.value)} placeholder="First name" />
+            <Input value={lastN} onChange={e => setLastN(e.target.value)} placeholder="Last name" />
             <Input value={username} onChange={e => setUsername(e.target.value)} placeholder="Username" />
             <PasswordInput value={password} onChange={e => setPassword(e.target.value)} placeholder="Password" />
             <Input value={pin} inputMode="numeric" maxLength={4} onChange={e => setPin(e.target.value.replace(/\D/g, "").slice(0, 4))} placeholder="4-digit PIN (for quick login)" />
@@ -1887,7 +1907,8 @@ function Admin({ users, refreshUsers, items, refreshItems, user, can, paperOn = 
             {isEditing ? (
               <div>
                 <div className="grid2" style={{ marginBottom: 10 }}>
-                  <Input value={editingUser.name} onChange={e => setEditingUser(f => ({ ...f, name: e.target.value }))} placeholder="Full name" />
+                  <Input value={editingUser.first || ""} onChange={e => setEditingUser(f => ({ ...f, first: e.target.value }))} placeholder="First name" />
+                  <Input value={editingUser.last || ""} onChange={e => setEditingUser(f => ({ ...f, last: e.target.value }))} placeholder="Last name" />
                   <Input value={editingUser.username} onChange={e => setEditingUser(f => ({ ...f, username: e.target.value }))} placeholder="Username" />
                   <PasswordInput value={editingUser.password || ""} onChange={e => setEditingUser(f => ({ ...f, password: e.target.value }))} placeholder="New password (blank = keep)" />
                   <Input value={editingUser.pin || ""} inputMode="numeric" maxLength={4} onChange={e => setEditingUser(f => ({ ...f, pin: e.target.value.replace(/\D/g, "").slice(0, 4), pinTouched: true }))} placeholder={editingUser.has_pin ? "New PIN (blank = keep)" : "4-digit PIN"} />
@@ -1907,7 +1928,7 @@ function Admin({ users, refreshUsers, items, refreshItems, user, can, paperOn = 
                   <p className="xs muted">{ROLES[u.role]} · {LOCS.find(l => l.id === u.location_id)?.name || "No home store"} · {u.has_pin ? "PIN set" : <span className="warn">No PIN</span>}</p>
                 </div>
                 {canManageUser(u) && <div className="hstack" style={{ flexWrap: "nowrap" }}>
-                  <Button variant="ghost" size="sm" onClick={() => { setEditingUser({ ...u, password: "", pin: "" }); setUe(""); }}>Edit</Button>
+                  <Button variant="ghost" size="sm" onClick={() => { setEditingUser({ ...u, first: splitName(u.name).first, last: splitName(u.name).last, password: "", pin: "" }); setUe(""); }}>Edit</Button>
                   {u.id !== user.id && <Button variant="ghost" size="sm" className="danger" onClick={() => remU(u.id)}>Remove</Button>}
                 </div>}
               </div>
