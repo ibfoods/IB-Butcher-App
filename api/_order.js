@@ -5,7 +5,7 @@ const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "
 
 // "Nov #12" — the monthly order number as spoken to a customer.
 export function orderNumberText(order) {
-  const seq = order?.order_seq ?? order?.daily_number;
+  const seq = order?.daily_number ?? order?.order_seq;   // the number the customer was given
   const m = parseInt(String(order?.pickup_date || "").slice(5, 7), 10);
   const mon = MONTHS[m - 1] || "";
   return `${mon ? mon + " " : ""}#${seq ?? ""}`.trim();
@@ -16,7 +16,7 @@ export function orderMonthText(order) {
   return MONTHS[m - 1] || "";
 }
 export function orderSeqText(order) {
-  return String(order?.order_seq ?? order?.daily_number ?? "");
+  return String(order?.daily_number ?? order?.order_seq ?? "");
 }
 
 const trimNum = (q) => {

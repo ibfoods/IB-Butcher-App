@@ -6,9 +6,10 @@ export const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "
 export const monthOf = (ymd) => MONTHS[parseInt(String(ymd || "").slice(5, 7), 10) - 1] || "";
 export const ymOf = (ymd) => String(ymd || "").slice(0, 7);
 
-// The number as spoken: "Nov #12". Falls back to the old daily number for
-// anything that predates the migration.
-export const orderSeq = (o) => o?.order_seq ?? o?.daily_number ?? "";
+// The number the customer was given. New orders: daily_number === order_seq.
+// Orders taken before monthly numbering keep the number the customer was told
+// (daily_number); order_seq is then only the internal unique key.
+export const orderSeq = (o) => o?.daily_number ?? o?.order_seq ?? "";
 export const orderNumberText = (o) => `${monthOf(o?.pickup_date)} #${orderSeq(o)}`.trim();
 
 const trimNum = (q) => {

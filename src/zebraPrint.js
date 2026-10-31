@@ -84,7 +84,7 @@ export function buildLabels(orders, orderItemsMap, items, locs, fmt) {
       const base = {
         customer: o.customer_name || '',
         month: monthOf(o.pickup_date),
-        dailyNumber: o.order_seq ?? o.daily_number ?? '',
+        dailyNumber: o.daily_number ?? o.order_seq ?? '',   // the number the customer was given
         itemName: item?.name || '',
         note: li.note || '',
         pickup: `${fmt.date(o.pickup_date)} ${fmt.time(o.pickup_time)}`.trim(),

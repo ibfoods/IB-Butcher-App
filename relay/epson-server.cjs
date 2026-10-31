@@ -146,7 +146,7 @@ const LF = 0x0a;
 
 const MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
 function orderNumberText(order) {
-  const seq = order.order_seq ?? order.daily_number;
+  const seq = order.daily_number ?? order.order_seq;   // the number the customer was given
   const m = parseInt(String(order.pickup_date || "").slice(5, 7), 10);
   return `${MONTHS[m - 1] || ""} #${seq ?? ""}`.trim();
 }
