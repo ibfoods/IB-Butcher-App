@@ -9,6 +9,9 @@
 -- APPLY TOGETHER WITH THE MATCHING APP DEPLOY. The old app cannot log in once
 -- this runs (it read users directly), and the new app cannot run on the old policies.
 
+-- On Supabase pgcrypto lives in the `extensions` schema, so every function that
+-- calls crypt()/gen_salt() must include it in search_path (applied live Oct 31
+-- via ALTER FUNCTION after login failed with "function crypt(text, text) does not exist").
 create extension if not exists pgcrypto;
 
 -- ── 1. Hash credentials ───────────────────────────────────────────────────
@@ -39,7 +42,7 @@ alter table public.login_attempts enable row level security;   -- no policies: s
 -- Returns the matched user's safe columns, or nothing. Never exposes hashes.
 create or replace function public.login_with_pin(p_pin text, p_ip text)
 returns table (id uuid, name text, username text, role text, location_id text)
-language plpgsql security definer set search_path = public as $$
+language plpgsql security definer set search_path = public, extensions as $$
 declare
   recent_fail int;
   u record;
@@ -66,7 +69,7 @@ end $$;
 
 create or replace function public.login_with_password(p_username text, p_password text, p_ip text)
 returns table (id uuid, name text, username text, role text, location_id text)
-language plpgsql security definer set search_path = public as $$
+language plpgsql security definer set search_path = public, extensions as $$
 declare
   recent_fail int;
   u record;
@@ -89,7 +92,7 @@ end $$;
 
 -- Set / change credentials (API only). Null leaves a value unchanged; '' clears the PIN.
 create or replace function public.set_user_credentials(p_user uuid, p_password text, p_pin text)
-returns void language plpgsql security definer set search_path = public as $$
+returns void language plpgsql security definer set search_path = public, extensions as $$
 begin
   if p_password is not null and p_password <> '' then
     update public.users set password_hash = crypt(p_password, gen_salt('bf', 10)) where id = p_user;
