@@ -105,6 +105,18 @@ function takenByInitials(name) {
   return `${parts[0]} ${parts[parts.length - 1][0]}.`;
 }
 
+// Email is required on new orders. Reject malformed addresses and the usual
+// placeholders staff type when a customer won't give one (they bounce off the
+// store's Gmail and pollute the customer list).
+const FAKE_EMAIL = /^(none|noemail|no-email|no\.?email|na|n\/a|nope|test|x+|a+|asdf|null|unknown|customer|email)@|@(none|noemail|test|example|email|nomail|fake)\.(com|net|org)$/i;
+function emailProblem(raw) {
+  const e = String(raw || "").trim();
+  if (!e) return "Customer email is required.";
+  if (!/^[^\s@]+@[^\s@]+\.[a-z]{2,}$/i.test(e)) return "That email address doesn't look right.";
+  if (FAKE_EMAIL.test(e)) return "Please enter the customer's real email address.";
+  return "";
+}
+
 function formatPhone(val) {
   const digits = val.replace(/\D/g, "").slice(0, 10);
   if (digits.length <= 3) return digits.length ? `(${digits}` : "";
@@ -726,6 +738,9 @@ function Orders({ activeLoc, user, orders, orderItemsMap, refresh, inv, refreshI
 
   const saveEdit = async () => {
     if (!editForm.lineItems.length) { setEditErr("Add at least one item."); return; }
+    // Email can't be removed from an order that has one, and anything typed must be real.
+    // Legacy orders taken without an email can still be edited without adding one.
+    if (editForm.customer_email?.trim() || detail.customer_email) { const ep = emailProblem(editForm.customer_email); if (ep) { setEditErr(ep); return; } }
     setSaving(true); setEditErr("");
     try {
       const customerName = `${editForm.firstName.trim()} ${editForm.lastName.trim()}`.trim();
@@ -879,7 +894,7 @@ function Orders({ activeLoc, user, orders, orderItemsMap, refresh, inv, refreshI
                 <Field label="Last name"><Input value={editForm.lastName} onChange={e => setEditForm(f => ({ ...f, lastName: e.target.value }))} /></Field>
               </div>
               <Field label="Phone"><Input value={editForm.customer_phone} inputMode="tel" onChange={e => setEditForm(f => ({ ...f, customer_phone: formatPhone(e.target.value) }))} /></Field>
-              <Field label="Email (optional)"><Input type="email" value={editForm.customer_email || ""} onChange={e => setEditForm(f => ({ ...f, customer_email: e.target.value }))} placeholder="customer@email.com" /></Field>
+              <Field label="Email" hint={!detail.customer_email ? "This order was taken without an email — add one if you can." : undefined}><Input type="email" inputMode="email" autoCapitalize="none" value={editForm.customer_email || ""} onChange={e => setEditForm(f => ({ ...f, customer_email: e.target.value }))} placeholder="customer@email.com" /></Field>
               {can("manager") && <Field label="Location"><Select value={editForm.location_id} onChange={e => setEditForm(f => ({ ...f, location_id: e.target.value }))}>{LOCS.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}</Select></Field>}
               <div className="grid2">
                 <Field label="Pickup date" hint={ymOf(editForm.pickup_date) !== ymOf(detail.pickup_date) ? `Changes the order number to a ${monthOf(editForm.pickup_date)} number` : undefined}><Input type="date" value={editForm.pickup_date} onChange={e => setEditForm(f => ({ ...f, pickup_date: e.target.value }))} /></Field>
@@ -1020,6 +1035,7 @@ function NewOrder({ activeLoc, user, orders, refresh, inv, refreshInv, items, se
     if (!lastName.trim()) { setErr("Last name required."); return; }
     if (!phone.trim()) { setErr("Phone required."); return; }
     if (!pickupDate) { setErr("Pickup date required."); return; }
+    { const ep = emailProblem(email); if (ep) { setErr(ep); return; } }
     if (lineItems.length === 0) { setErr("Add at least one item."); return; }
     setErr(""); setSubmitting(true);
     try {
@@ -1180,7 +1196,7 @@ function NewOrder({ activeLoc, user, orders, refresh, inv, refreshInv, items, se
               </Button>
               {emailStatus === "error" && <p className="xs danger" style={{ marginTop: 8 }}>Failed to send. Check the address and try again.</p>}
               {emailStatus === "error_addr" && <p className="xs danger" style={{ marginTop: 8 }}>Please enter a valid email address.</p>}
-              {!validEmail && <p className="xs muted" style={{ marginTop: 8, textAlign: "center" }}>No email? The order is already saved — the customer can reference order {orderNumberText(placedOrder)}.</p>}
+
             </>
           )}
           {paper && <Button full icon="printer" style={{ marginTop: 10 }} onClick={() => printReceipt(placedOrder, placedOrderItems, items, LOCS)}>Print paper receipt</Button>}
@@ -1215,7 +1231,7 @@ function NewOrder({ activeLoc, user, orders, refresh, inv, refreshInv, items, se
         <Field label="First name"><Input value={firstName} onChange={e => setFirstName(e.target.value)} placeholder="First name" /></Field>
         <Field label="Last name"><Input value={lastName} onChange={e => setLastName(e.target.value)} placeholder="Last name" /></Field>
       </div>
-      <Field label="Customer email (optional)"><Input type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="customer@email.com" /></Field>
+      <Field label="Customer email" hint="Required — the receipt is emailed."><Input type="email" inputMode="email" autoCapitalize="none" value={email} onChange={e => setEmail(e.target.value)} placeholder="customer@email.com" bad={!!email && !!emailProblem(email)} /></Field>
       <Field label="Items">
         <ItemPicker items={items} inv={inv} locationId={locationId} lines={lineItems} onChange={setLineItems} canOverride={canOverride} />
       </Field>
