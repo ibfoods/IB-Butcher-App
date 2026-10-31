@@ -1,8 +1,48 @@
 # IB Butcher App — Project Knowledge
 
-_Last updated: October 29, 2026_
+_Last updated: October 31, 2026_
 
-## Start here — next session (set Oct 29, 2026)
+## Start here — next session (set Oct 31, 2026)
+
+**State:** UI rework + ordering rework + auth hardening are all LIVE on main. Wantagh has been taking
+real Thanksgiving orders on the app (started without Mike's sign-off). Treat production data as real.
+
+**Open items**
+- Pat Gallicchio and Joanna Gross (Wantagh, pickup Nov 24) both hold **#5** — both got emailed receipts.
+  When Chris is back: call one, give them a new number (e.g. #11), then set `daily_number` on that order.
+- Chris Iavarone's Wantagh order (Nov 25, #1, placed Oct 22) is probably a test — confirm with Chris.
+- Woodbury relay (`relay/epson-server.cjs`) on the store PC still runs old code — update from repo.
+- Zebra label test print (footer PICKUP / PHONE / LOCATION) not yet seen on paper.
+- Alert email per store not set (Admin → Store settings). Sign-in timeout set to 5 min by Mike.
+- Possible: per-store "Taking orders" switch so stores can't go live without approval.
+- `auth-selftest` branch on GitHub is a throwaway — delete it (this session can't delete branches).
+
+**Auth (Oct 31)** — see `sql/2026-10-31_auth_hardening.sql`
+- Login: `/api/auth/login` → Postgres `login_with_pin` / `login_with_password` (bcrypt, SECURITY DEFINER,
+  service role only, 10 failures/IP/15 min) → HS256 JWT signed with Vercel `SUPABASE_JWT_SECRET`
+  (= Supabase **Legacy JWT secret**). RLS requires that token on every table; anon has no grants;
+  `users` is closed to clients (managers read the `staff` view); staff CRUD via `/api/users`.
+- **Never revoke the Legacy JWT secret** in Supabase → JWT Keys. The project is migrated to new signing
+  keys and the legacy secret is "still used / verify only"; revoking it locks everyone out.
+- On Supabase, pgcrypto lives in the `extensions` schema — SECURITY DEFINER functions that call
+  `crypt()` need `search_path = public, extensions`. (Login was broken ~15 min on Oct 31 because of this.)
+- No one can see PINs/passwords anymore; managers reset them in Admin → Users.
+
+**Order numbers**
+- `order_seq` = hidden unique key per store per pickup month (`next_order_seq`). `daily_number` = the
+  number the customer was given; **the app displays `daily_number`**. New orders write both equal.
+- Legacy Wantagh orders keep their told numbers. Wantagh Nov displays 1–10 (one dup #5); next new is #15.
+- **Rule: before any backfill/renumber, check for live orders customers were already given numbers for.**
+
+**Backups** — private `backup` schema (not exposed to the API): `orders_deleted_2026_10_31`,
+`order_items_deleted_2026_10_31`, `customers_deleted_2026_10_31` (32 test orders / 19 test customers
+removed Oct 31), `renumber_2026_10_31` (old numbers of 6 renumbered no-email Wantagh orders).
+
+**Other Oct 30–31 changes**: sticky nav (New order + Orders; desk tabs under More on phones); login
+persists across reloads; idle timeout setting (5 min…never); sign-out/timeout does a full reload and
+devices detect new builds; customer email required on new orders (fakes rejected).
+
+## Previous start-here (Oct 29, 2026)
 
 **Branch `ui-foundation` holds the full UI cleanup + ordering rework. NOT merged.** Mike reviews
 on the Vercel preview, then merge to `main`. Restore point: branch `backup/pre-ui-foundation-2026-10-29`
