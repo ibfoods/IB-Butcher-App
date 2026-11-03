@@ -1,5 +1,5 @@
 import PDFDocument from "pdfkit";
-import { requireUser } from \"./_auth.js\";
+import { requireUser } from "./_auth.js";
 import { WORDMARK_B64, WORDMARK_BUFFER, WORDMARK_W, WORDMARK_H } from "./_logo.js";
 import { gmailFor, b64lines } from "./_gmail.js";
 import { orderNumberText, orderMonthText, orderSeqText, qtyText } from "./_order.js";
