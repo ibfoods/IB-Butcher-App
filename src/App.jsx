@@ -462,6 +462,12 @@ export default function App() {
       window.history.replaceState({}, "", "/");
       console.error("Gmail OAuth error:", params.get("gmailError"));
     }
+    // Back from connecting the backup Drive → open Admin → Backups with the result
+    if (params.get("driveConnected") || params.get("driveError")) {
+      try { sessionStorage.setItem("ib_drive_result", JSON.stringify(params.get("driveError") ? { error: params.get("driveError") } : { ok: true })); } catch {}
+      window.history.replaceState({}, "", "/");
+      if (sess && alive) setView("admin");
+    }
   }, [loadAll]);
 
   // Once settings are in, enforce the idle timeout on a restored session; keep the token fresh while active
@@ -1705,13 +1711,87 @@ function ItemLabelFields({ value, onChange }) {
   </div>;
 }
 
+// Admin → Backups: backup Drive connection, last backup, last daily check.
+function BackupsAdmin() {
+  const [st, setSt] = useState(null);
+  const [err, setErr] = useState("");
+  const [busy, setBusy] = useState("");
+  const [run, setRun] = useState(null);      // result of "Run check now"
+  const [notice, setNotice] = useState(() => {
+    try { const v = sessionStorage.getItem("ib_drive_result"); sessionStorage.removeItem("ib_drive_result"); return v ? JSON.parse(v) : null; } catch { return null; }
+  });
+  const load = async () => { try { setSt(await api("/api/ops?task=status")); setErr(""); } catch (e) { setErr(e.message); } };
+  useEffect(() => { load(); }, []);
+
+  const connect = async () => {
+    setBusy("connect");
+    try { const { url } = await api("/api/ops?task=drive-start", {}); window.location.href = url; }
+    catch (e) { setErr(e.message); setBusy(""); }
+  };
+  const backupNow = async () => {
+    setBusy("backup"); setNotice(null);
+    try { const r = await api("/api/ops?task=backup", {}); setNotice(r.ok ? { ok: true, msg: `Backed up: ${r.counts.orders} orders, ${r.counts.customers} customers.` } : { error: r.error }); }
+    catch (e) { setNotice({ error: e.message }); }
+    setBusy(""); load();
+  };
+  const checkNow = async () => {
+    setBusy("check");
+    try { setRun(await api("/api/ops?task=health", {})); } catch (e) { setErr(e.message); }
+    setBusy(""); load();
+  };
+  const when = (iso) => iso ? new Date(iso).toLocaleString("en-US", { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }) : "";
+  const mark = (ok) => ok === true ? <span className="ok">✓</span> : ok === "warn" ? <span style={{ color: "var(--warn)" }}>!</span> : <span className="danger">✗</span>;
+  const health = run ? { ...run, at: run.at } : st?.health;
+  const b = st?.backup;
+
+  if (!st && !err) return <Loading />;
+  return <div>
+    {notice?.ok && <Banner tone="ok" style={{ marginBottom: 12 }}><Icon name="check" size={16} />{notice.msg || "Backup Drive connected. The app made an \"IB Butcher App Backups\" folder in that Drive."}</Banner>}
+    {notice?.error && <Banner tone="err" style={{ marginBottom: 12 }}><Icon name="alert" size={16} />{notice.error}</Banner>}
+    {err && <Banner tone="err" style={{ marginBottom: 12 }}><Icon name="alert" size={16} />{err}</Banner>}
+
+    <Card style={{ marginBottom: 12 }}>
+      <p className="h2" style={{ marginBottom: 6 }}>Backup Drive</p>
+      {st?.drive?.connected
+        ? <p className="small">Connected to <b>{st.drive.email}</b> · since {when(st.drive.connected_at)}{st.drive.folder_link && <> · <a href={st.drive.folder_link} target="_blank" rel="noreferrer">Open backup folder</a></>}</p>
+        : <p className="small danger">Not connected — nothing is being backed up to Drive yet.</p>}
+      <p className="xs muted" style={{ margin: "6px 0 10px" }}>Sign in as mike@ibfoods.com. The app can only see the files it creates there, nothing else in that Drive.</p>
+      <Button size="sm" variant={st?.drive?.connected ? "secondary" : "primary"} onClick={connect} disabled={!!busy}>{busy === "connect" ? "Opening Google…" : st?.drive?.connected ? "Reconnect backup Drive" : "Connect backup Drive"}</Button>
+    </Card>
+
+    <Card style={{ marginBottom: 12 }}>
+      <p className="h2" style={{ marginBottom: 6 }}>Nightly backup <span className="xs muted">· about 2 AM</span></p>
+      {!b ? <p className="small muted">No backup yet.</p>
+        : b.ok === false ? <p className="small danger">Last backup FAILED {when(b.at)}: {b.error}</p>
+        : <>
+            <p className="small">Last backup {when(b.at)} · {b.counts?.orders} orders, {b.counts?.customers} customers · {Math.max(1, Math.round((b.bytes || 0) / 1024))} KB</p>
+            {b.last_failure && <p className="xs danger" style={{ marginTop: 4 }}>A later attempt failed {when(b.last_failure.at)}: {b.last_failure.error}</p>}
+          </>}
+      <div style={{ marginTop: 10 }}><Button size="sm" onClick={backupNow} disabled={!!busy || !st?.drive?.connected}>{busy === "backup" ? "Backing up…" : "Back up now"}</Button></div>
+    </Card>
+
+    <Card>
+      <p className="h2" style={{ marginBottom: 6 }}>Daily check <span className="xs muted">· about 6 AM, emailed to mike@ibfoods.com</span></p>
+      {!health ? <p className="small muted">Hasn't run yet.</p> : <>
+        <p className="small" style={{ marginBottom: 8 }}>{health.problems ? <span className="danger"><b>{health.problems} problem{health.problems > 1 ? "s" : ""}</b></span> : <span className="ok"><b>All good</b></span>} · {when(health.at)}</p>
+        {health.checks.map((c, i) => <div key={i} style={{ marginBottom: 6 }}>
+          <p className="small">{mark(c.ok)} <b>{c.name}</b> — {c.detail}</p>
+          {c.lines?.length > 0 && <ul className="xs muted" style={{ margin: "2px 0 0 22px" }}>{c.lines.map((l, j) => <li key={j}>{l}</li>)}</ul>}
+        </div>)}
+      </>}
+      {st && !st.cron_ready && <p className="xs danger" style={{ marginTop: 8 }}>Schedule not active yet: CRON_SECRET isn't set in Vercel.</p>}
+      <div style={{ marginTop: 10 }}><Button size="sm" icon="refresh" onClick={checkNow} disabled={!!busy}>{busy === "check" ? "Checking…" : "Run check now"}</Button></div>
+    </Card>
+  </div>;
+}
+
 function Admin({ users, refreshUsers, items, refreshItems, user, can, paperOn = {}, setPaperOn, alertEmails = {}, setAlertEmails, timeoutMin = 240, setTimeoutMin }) {
   const saveTimeout = async (v) => {
     const prev = timeoutMin; setTimeoutMin(v);
     const { error } = await supabase.from("app_settings").upsert({ key: "session_timeout_minutes", value: String(v), updated_at: new Date().toISOString() }, { onConflict: "key" });
     if (error) { setTimeoutMin(prev); alert("Could not save: " + error.message); }
   };
-  const [tab, setTab] = useState("users");
+  const [tab, setTab] = useState(() => { try { return sessionStorage.getItem("ib_drive_result") ? "backups" : "users"; } catch { return "users"; } });
   const isAdmin = can("admin");
   // Managers only see and manage clerks at their own store
   const visibleUsers = isAdmin ? users : users.filter(u => u.location_id === user.location_id && u.role === "clerk");
@@ -1853,8 +1933,10 @@ function Admin({ users, refreshUsers, items, refreshItems, user, can, paperOn = 
     <div>
       <p className="h1">{isAdmin ? "Admin" : "Users"}</p>
       {isAdmin && <div className="pills" style={{ marginBottom: 16 }}>
-        {[["users", "Users"], ["items", "Items"], ["gmail", "Gmail"], ["printers", "Store settings"]].map(([t, l]) => <Pill key={t} on={tab === t} onClick={() => { setTab(t); if (t === "gmail") loadGmailTokens(); }}>{l}</Pill>)}
+        {[["users", "Users"], ["items", "Items"], ["gmail", "Gmail"], ["printers", "Store settings"], ["backups", "Backups"]].map(([t, l]) => <Pill key={t} on={tab === t} onClick={() => { setTab(t); if (t === "gmail") loadGmailTokens(); }}>{l}</Pill>)}
       </div>}
+
+      {tab === "backups" && isAdmin && <BackupsAdmin />}
 
       {tab === "gmail" && <div>
         <div className="hstack" style={{ justifyContent: "space-between", marginBottom: 14 }}>

@@ -1,5 +1,6 @@
 import { google } from "googleapis";
 import https from "https";
+import { checkState, finishConnect } from "../_drive.js";
 
 const CLIENT_ID = process.env.GOOGLE_CLIENT_ID;
 const CLIENT_SECRET = process.env.GOOGLE_CLIENT_SECRET;
@@ -34,6 +35,19 @@ function httpsPost(url, data, headers) {
 
 export default async function handler(req, res) {
   const { code, state: locationId, error } = req.query;
+
+  // Backup Drive connection (Admin → Backups). Store Gmail continues below.
+  if (String(locationId || "").startsWith("drive.")) {
+    if (error) return res.redirect(`/?driveError=${encodeURIComponent(error)}`);
+    if (!checkState(locationId)) return res.redirect(`/?driveError=${encodeURIComponent("Link expired. Press Connect backup Drive again.")}`);
+    try {
+      await finishConnect(code);
+      return res.redirect("/?driveConnected=1");
+    } catch (err) {
+      console.error("Drive connect failed:", err);
+      return res.redirect(`/?driveError=${encodeURIComponent(err.message)}`);
+    }
+  }
 
   if (error) {
     return res.status(200).json({ error, locationId, step: "google_error" });
