@@ -1,8 +1,108 @@
 # IB Butcher App — Project Knowledge
 
-_Last updated: October 31, 2026_
+_Last updated: November 13, 2026_
 
-## Start here — next session (set Oct 31, 2026)
+## RULES — read before touching anything (set by Mike, Nov 13, 2026)
+
+1. **Wantagh is LIVE for the 2026 Thanksgiving season** — the only store running live this season
+   (trial). Every Wantagh order is a real customer order. Woodbury, Garden City, Maspeth and
+   New Hyde Park are NOT live.
+2. **Nothing on a live order changes** — no numbers, items, dates, times, customers or status;
+   no backfills, renumbering or cleanup — **unless Mike asks for that specific change.**
+3. **Even when Mike asks, confirm with him before running it.** Show exactly what will change
+   (which order, which field, old → new) and wait for a clear yes. A badly worded request must
+   not be able to damage live data.
+4. **Database changes are additive only** (new functions/tables/columns). Before running one,
+   confirm it rewrites no existing order rows.
+5. **Tests never run on Wantagh data.** Use a made-up store id that isn't in `LOCS` (e.g.
+   `zz-test` inventory rows) or Woodbury, and clean up afterwards. Never create test *items* —
+   items are shared by every store and would appear in Wantagh's picker.
+6. **Before any data change, save the old values** in the private `backup` schema
+   (see Backups below) so it can be undone.
+7. **Going live with app changes needs Mike's go-ahead.** Build on a branch, test, report, then
+   fast-forward `main` when he says go. Confirm the Vercel production deploy shows READY.
+8. Butcher App only — never touch OrderHQ resources from this project. Explain outcomes to Mike in
+   plain English; give numbered one-action steps for anything he must do.
+
+## Start here — next session (set Nov 13, 2026)
+
+**State:** Wantagh live (~100 orders, pickups mostly Nov 23–25). Nov 13 changes all live on `main`
+(`ab8ea1e`). Previous production deploy is a one-click rollback in Vercel.
+
+**Open items**
+- **B&E 22/24 is oversold by 6** (4 in house, 10 ordered). Wantagh is handling it (get more from
+  Bell & Evans or move customers to a bigger size). The 6 AM health email flags it until fixed.
+- **Chris's order #84** (Wantagh, pickup Nov 24) — Mike is asking whether it's a test. Don't touch.
+- **Joanna Gross** was renumbered #5 → #1 on Nov 13 (at Mike's request) but her emailed receipt
+  says #5 — store needs to tell her or resend the receipt.
+- **Daily Pickup List** — still on hold, no code. Spec + open decisions: Claude project doc
+  `claude/Daily-Pickup-List-Spec.md`. Pickup rush is Nov 24–25, so it needs a go/no-go soon.
+- **Health check noise:** the Woodbury receipt-printer relay check warns every day (receipt printers
+  were dropped Nov 3) and Woodbury's paper-receipt toggle is still on. Remove the check / turn
+  the toggle off when Mike OKs it.
+- **Repos are still public** (`IB-Butcher-App`, `IB-Sandwich-App`) — Mike to switch to Private.
+- Supabase advisors (Nov 13): `staff` view is SECURITY DEFINER (intentional — it hides PIN/password
+  hashes; managers read staff through it); `app_role`/`is_admin`/`is_manager` lack a fixed
+  search_path; any signed-in user can read all stores' orders at the DB level (screens filter by
+  store). Low priority, after the holiday.
+- Clean up `auth-selftest` and `atomic-stock` branches on GitHub (this session can't delete branches).
+
+**Turkey inventory — how the count works (Nov 13)**
+- `inventory.stock` = **left to sell**, not total on hand. A new order takes stock off when saved;
+  cancel / delete / edit give back or adjust. Typing a number on the Inventory screen *replaces*
+  the count — it does NOT subtract orders already taken.
+- So when a store gives totals (on hand or on order), the correct count is
+  **total − all active (non-cancelled) orders for that pool with pickup today or later.**
+  Pools: `coalesce(items.parent_id, items.id)` — plain + oven-ready children share one pool.
+- Nov 13 Wantagh totals from Chris (B&E = in house, Fresh = on order): B&E Organic 18/22 6,
+  B&E 10/12 40, 14/16 32, 18/20 48, 22/24 4, 24/26 20, 26/28 16; Fresh 10–14 32, 14–16 48,
+  16–20 130, 24–28 50. Counts were set from these; prior values in `backup.inventory_2026_11_13`.
+- Before that, stores kept typing 10 back in when a pool ran low, so pre-Nov-13 counts mean nothing.
+
+**Shipped Nov 13** (`sql/2026-11-13_atomic_stock.sql`, commits `3a2d92b`, `ab8ea1e`)
+- **Stock changes happen inside the database in one step:** `apply_stock_changes(location,
+  {pool: ±n}, allow_negative)` locks the inventory rows, checks there's enough, applies all
+  changes or none. Fixes two iPads saving at once losing a deduction / both taking the last one.
+  App helper `stockChange()` in `App.jsx`. New order: check + take off first, give back if the
+  order then fails to save; manager override retries with oversell allowed. Edit/cancel/delete
+  always apply. Tested on fake store `zz-test` (refusal, all-or-nothing, override, give-back,
+  untracked skip, anon blocked); Wantagh counts verified unchanged by the tests.
+- **Delete now gives stock back** (skipped if the order was already cancelled — cancel already did).
+- **Place order ignores a second tap** while the first is saving (`submitLock` ref). This caused
+  the duplicate (later cancelled) Pat Gallicchio / Joanna Gross orders on Oct 30–31.
+- **Editing an order keeps the customer's number.** It used to write `daily_number = order_seq`
+  on every edit; older Wantagh orders have a told number ≠ `order_seq`, so Chris's edit turned
+  Vincent Colletti #7 into #4 (duplicating Janice Bendernagel). Now the told number changes only
+  when the order moves store or month (after the clerk confirms).
+- Remaining direct inventory write is the Inventory screen recount — intentional.
+
+**Data changes made Nov 13 (all at Mike's request; old values in `backup` schema)**
+- Joanna Gross Wantagh #5 → **#1** (`backup.renumber_2026_11_13`); Pat Gallicchio keeps #5.
+- Chris Iavarone's test order (Wantagh #1, pickup Nov 25) deleted
+  (`backup.orders_deleted_2026_11_13`, `backup.order_items_deleted_2026_11_13`).
+- Vincent Colletti #4 → back to **#7** (`backup.renumber_2026_11_13`).
+- Wantagh turkey counts set from Chris's totals (`backup.inventory_2026_11_13`).
+
+**Order numbers — data rule:** `daily_number` is the number the customer was told and is what the
+app shows. `order_seq` is the hidden unique counter. For older Wantagh orders they differ
+(Joanna Gross 1/10, William Rathner 2/6, M Crowe 3/2, Vincent Colletti 7/4, Janice Bendernagel 4/12,
+Pat Gallicchio 5/11, M Malise 6/3, M Goldmacher 9/5, Ann Mitchell 10/7). Never "fix" that.
+The health check flags duplicate told numbers among active orders.
+
+**Backups & daily check (built Nov 3)** — `api/ops.js`, `api/_backup.js`, `api/_health.js`,
+`docs/RESTORE.md`. Nightly 2 AM ET backup to Drive (mike@ibfoods.com → "IB Butcher App Backups",
+per-store folders + an "upcoming orders" sheet per store for pickup day if the app is down).
+6 AM ET health check emailed to mike@ibfoods.com. Admin → Backups shows status / run now.
+
+**Tooling notes (Nov 13)**
+- Supabase connector `Supabase_IB_Butcher` reaches this project directly (SQL, migrations, advisors).
+- Vercel connector can read deploy status: project `prj_Bq3fHEXBIsOIm457qq81u5hRuCJF`,
+  team `team_4Kqx8nQwNXsVYy5TR9ZgduKt` — use it to confirm a production deploy is READY.
+- SQL `DELETE` through the connector can be auto-cancelled pending confirmation — get Mike's OK
+  in chat, then run the delete on its own.
+- Push access: attach the repo with push access; commit as Mike Bottari <bottari.mike@gmail.com>.
+
+## Previous start-here (Oct 31, 2026)
 
 **State:** UI rework + ordering rework + auth hardening are all LIVE on main. Wantagh has been taking
 real Thanksgiving orders on the app (started without Mike's sign-off). Treat production data as real.
@@ -64,7 +164,7 @@ What landed (see `claude/UI-Cleanup-Proposal-2026-10-29.md` in the Claude projec
 - **Monthly order number**: `orders.order_seq` from `next_order_seq(location, pickup_date)`
   (counter table `order_counters`, row-locked, keyed on pickup month). Shown as "Nov #12"
   (`src/orderFmt.js`, `api/_order.js`). Editing pickup month or store renumbers (with confirm).
-  `daily_number` is kept equal to `order_seq` for old code paths; `invoice_number` still
+  New orders write `daily_number` = `order_seq`; edits keep the told `daily_number` (see Nov 13); `invoice_number` still
   assigned but shown nowhere (only under "Details" as "Ref").
 - **Mark complete removed** — status is pending / cancelled only.
 - **Item notes** (`order_items.note`): picker, modal, email/PDF/thermal receipts, production
@@ -141,14 +241,16 @@ woodbury@ibfoods.com / wantagh@ibfoods.com / gardencity@ibfoods.com / maspeth@ib
 newhydepark@ibfoods.com.
 
 ## Core features (as of today)
-- **Auth:** simple username/password login stored in Supabase `users` table (not real auth —
-  plaintext-ish, role-based: clerk / manager / admin / master_admin)
+- **Auth:** 4-digit PIN (unique across stores) or username/password, hashed (bcrypt), checked
+  server-side (`/api/auth/login`) → signed token required by RLS on every table (Oct 31).
+  Roles: clerk / manager / admin / master_admin. Clerks are locked to their home store.
 - **Orders:** create, edit, cancel, delete (manager+), search/filter by location/date/name/invoice
 - **Inventory:** parent/child shared-pool system (e.g. a "Turkey — Medium" pool covers both
   "plain" and "oven ready" child items drawing from one stock number)
 - **Reports:** Popularity (item counts in date range), Production (order worksheet for kitchen),
   Contact List (dedup by email/phone, CSV export, full list + email-only list)
-- **Receipt printing:** two paths —
+- **Receipts:** email is primary. **Receipt printers dropped Nov 3, 2026** (no Epson rollout, no
+  Star CloudPRNT); Woodbury relay code and paper toggle left in place for now. Old notes:
   1. Browser print (popup, always-available fallback)
   2. Relay-based thermal print to Epson TM-T88VII (Woodbury) — see Printer section below
 - **Label printing:** two distinct labels —
@@ -232,7 +334,7 @@ newhydepark@ibfoods.com.
 - Print-all: single-day views (Today/Tomorrow/picked date) show a bar above the list;
   Upcoming/All show a "Print all N labels" button on each date header.
 
-## Printer Architecture — Relay + Named Cloudflare Tunnel (FULLY WORKING as of Aug 27, 2026)
+## Printer Architecture — Relay + Named Cloudflare Tunnel (Woodbury only — receipt printers dropped Nov 3, 2026; kept for reference)
 
 ### Why the relay exists
 iPads run the app as a PWA over HTTPS. Browsers block direct connections from HTTPS pages
@@ -275,7 +377,7 @@ iPad PWA → Vercel `/api/print-relay` → Cloudflare Tunnel → Node.js relay o
 2. If not reachable: use Epson TM Utility on iPhone → SimpleAP setup → IBFWoodbury / (WiFi password from Mike) / static IP 192.168.30.31 / subnet 255.255.255.0 / gateway 192.168.30.1
 3. After reconnecting, do a fresh WebConfig backup immediately
 
-### Other 4 locations — printer rollout plan
+### Other 4 locations — printer rollout plan (CANCELLED Nov 3, 2026)
 - Recommended printer: **Star Micronics TSP143IV X4** (~$300) with **CloudPRNT**
 - CloudPRNT eliminates the relay entirely: printer polls Star's cloud, app sends job to cloud, done
 - WiFi only (no ethernet runs needed in stores)
@@ -284,16 +386,17 @@ iPad PWA → Vercel `/api/print-relay` → Cloudflare Tunnel → Node.js relay o
 - In-app setup wizard planned: Admin → Printers → Setup walks operator through everything
 
 ## RLS / Security
-- RLS enabled on all public Supabase tables (fixed August 2026 security advisory)
-- `printer_settings` protected with authenticated read/write policies
-- No anonymous access to any table
+- RLS on every public table; every policy requires the signed app token (Oct 31). Anonymous
+  callers have no grants. `users` is closed to the browser — managers read the `staff` view.
+- `apply_stock_changes` runs as the caller (SECURITY INVOKER); `authenticated` may execute it, anon may not.
+- Server-only tables (no policies, service role only): `users`, `ops_settings`, `login_attempts`, `order_counters`.
 
 ## Known technical gotchas
 - **Supabase project ref:** `gajafjiphrsvztcwofhe` — double-check this string, a prior typo caused bugs
 - **Epson OT-WL06 dongle** is flaky — printer can lose WiFi config after power loss; WebConfig backup is the fix
 - **Named tunnel credentials** live in `C:\Users\botta\.cloudflared\` — back these up if the PC is ever replaced
 - **GitHub secret scanning** will reject any repo file containing a live PAT — never commit credentials
-- **Vercel API** is not accessible from Claude's network (egress blocked) — Mike must do Vercel UI changes directly, or we write code that calls it from Vercel functions
+- **Vercel API** is not reachable from the shell; the Vercel connector can read deployments. Env var changes are still Mike's job in the Vercel UI.
 - Mike prefers full file replacements over partial diffs for large files like App.jsx
 - Git commits need `git config user.email` / `user.name` set first
 
@@ -302,21 +405,14 @@ iPad PWA → Vercel `/api/print-relay` → Cloudflare Tunnel → Node.js relay o
 - **OrderHQ** — eventual multi-tenant SaaS product, separate project/context
 
 ## Outstanding to-dos
-- [ ] Email receipt design polish (email-only decision, Oct 16) — see "Start here"
-- [ ] Make repos private; rotate old PAT + Vercel token; reconnect Supabase connector to ibfoods
-- [ ] Clean up test orders in production data
-- [ ] Add remaining staff users
-- [ ] iPad + Star TSP143 label printer test pass
-- [ ] Inventory levels double-check across all 5 locations
-- [ ] Purchase Star TSP143IV X4 printers for other 4 locations
-- [ ] Build CloudPRNT integration in app for non-Woodbury locations
-- [ ] Build in-app operator setup wizard (Admin → Printers → Setup)
-- [ ] Layout polish + full QA pass
-- [ ] Zebra production label: resolve rotation issue seen in Labelary preview, test on
-      physical GK420t, install Zebra Browser Print agent on Woodbury desktop, build
-      `printLabelsZPL()` in `App.jsx` (see Label printing section above for full context —
-      template is done and visually confirmed, integration is not).
-- [ ] Write PRINTER_SETUP_NEW_LOCATION.md and PRINTER_ARCHITECTURE.md in repo
+- [ ] Daily Pickup List — decide go/no-go (see Start here)
+- [ ] Remove the Woodbury receipt-printer health check; turn Woodbury paper receipts off (needs Mike's OK)
+- [ ] Make both repos private; rotate the old GitHub PAT + Vercel token
+- [ ] Per-store "taking orders" switch so a store can't go live without approval
+- [ ] Set an alert email per store (Admin → Store settings) — needed for oversell emails
+- [ ] Before other stores go live: staff users, items, inventory counts per store
+- [ ] After the holiday: per-store database lock on orders; advisor cleanup (search_path)
+- [ ] Zebra label footer (PICKUP / PHONE / LOCATION) — confirm on paper
 
 ## Brand assets
 - **Circle monogram** (`public/logo.jpg`, black IB circle "Since 1927") — used on the app login screen and in-app; keep it there.
