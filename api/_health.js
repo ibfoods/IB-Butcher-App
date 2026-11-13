@@ -93,19 +93,8 @@ export async function runHealth({ base }) {
     stats = h;
   } catch (e) { add("Order data", false, `Couldn't run data checks: ${e.message}`); }
 
-  // 5) Paper-receipt relays (only stores that have one)
-  const relays = Object.entries({ woodbury: process.env.EPSON_RELAY_URL_WOODBURY, wantagh: process.env.EPSON_RELAY_URL_WANTAGH,
-    gardencity: process.env.EPSON_RELAY_URL_GARDENCITY, maspeth: process.env.EPSON_RELAY_URL_MASPETH, nhp: process.env.EPSON_RELAY_URL_NHP }).filter(([, u]) => u);
-  for (const [loc, u] of relays) {
-    try {
-      const r = await fetch(`${u.replace(/\/$/, "")}/health`, { signal: AbortSignal.timeout(8000) });
-      add(`${storeName(loc)} receipt printer link`, r.ok ? true : "warn", r.ok ? "Reachable" : `Answered ${r.status}`,
-          r.ok ? [] : ["The store PC relay or tunnel isn't answering. Paper receipts will fall back to the browser print dialog."]);
-    } catch (e) {
-      add(`${storeName(loc)} receipt printer link`, "warn", "Not reachable",
-          ["The store PC may be off or asleep, or the relay isn't running. Paper receipts will fall back to the browser print dialog."]);
-    }
-  }
+  // 5) Receipt-printer relays: not checked. Stores are running printerless (Nov 13, 2026);
+  //    the print code and relay stay in place, but an offline store PC isn't a problem to report.
 
   // 6) Backup
   try {

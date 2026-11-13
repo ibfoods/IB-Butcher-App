@@ -37,9 +37,9 @@ _Last updated: November 13, 2026_
   says #5 — store needs to tell her or resend the receipt.
 - **Daily Pickup List** — still on hold, no code. Spec + open decisions: Claude project doc
   `claude/Daily-Pickup-List-Spec.md`. Pickup rush is Nov 24–25, so it needs a go/no-go soon.
-- **Health check noise:** the Woodbury receipt-printer relay check warns every day (receipt printers
-  were dropped Nov 3) and Woodbury's paper-receipt toggle is still on. Remove the check / turn
-  the toggle off when Mike OKs it.
+- **Printerless (Nov 13):** Wantagh runs printerless for the trial. The receipt-printer relay check
+  was removed from the 6 AM health report; print code, relay and the per-store paper toggle stay
+  (Mike: keep the capability, no alarm). Woodbury's paper toggle left as is.
 - **Repos are still public** (`IB-Butcher-App`, `IB-Sandwich-App`) — Mike to switch to Private.
 - Supabase advisors (Nov 13): `staff` view is SECURITY DEFINER (intentional — it hides PIN/password
   hashes; managers read staff through it); `app_role`/`is_admin`/`is_manager` lack a fixed
@@ -406,7 +406,6 @@ iPad PWA → Vercel `/api/print-relay` → Cloudflare Tunnel → Node.js relay o
 
 ## Outstanding to-dos
 - [ ] Daily Pickup List — decide go/no-go (see Start here)
-- [ ] Remove the Woodbury receipt-printer health check; turn Woodbury paper receipts off (needs Mike's OK)
 - [ ] Make both repos private; rotate the old GitHub PAT + Vercel token
 - [ ] Per-store "taking orders" switch so a store can't go live without approval
 - [ ] Set an alert email per store (Admin → Store settings) — needed for oversell emails
