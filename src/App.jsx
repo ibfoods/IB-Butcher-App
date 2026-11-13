@@ -1,9 +1,21 @@
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { supabase, setToken, getToken, tokenClaims, api } from "./supabase";
 import { findZebraPrinter, printZpl, buildLabels, zplForLabels } from "./zebraPrint";
 import { Button, Card, Pill, Chip, Toggle, Field, Input, Select, Textarea, PasswordInput, Banner, Loading, Empty, Modal, Icon, MadeBy, cx } from "./ui";
 import ItemPicker, { poolFor } from "./ItemPicker";
 import { monthOf, ymOf, orderSeq, orderNumberText, qtyText, qtyPrefix, lineName } from "./orderFmt";
+
+// Change stock counts inside the database in one step (sql/2026-11-13_atomic_stock.sql).
+// changes: { poolId: n } — negative takes off, positive gives back. Pools with no count
+// at this store are skipped. Taking more than is left is refused (nothing changes)
+// unless allowNegative. Returns { ok: true, stock } or { ok: false, short: [...] }.
+async function stockChange(locationId, changes, allowNegative = false) {
+  const clean = Object.fromEntries(Object.entries(changes).filter(([, n]) => Number(n)).map(([k, n]) => [k, Number(n)]));
+  if (!Object.keys(clean).length) return { ok: true, stock: {} };
+  const { data, error } = await supabase.rpc("apply_stock_changes", { p_location: locationId, p_changes: clean, p_allow_negative: allowNegative });
+  if (error) throw new Error(`Stock update failed: ${error.message}`);
+  return data;
+}
 
 const LOCS = [
   { id: "nhp", name: "New Hyde Park", address: "1538 Union Turnpike, Lake Success Center", city: "New Hyde Park, NY 11040", phone: "(516) 488-5600" },
@@ -777,12 +789,10 @@ function Orders({ activeLoc, user, orders, orderItemsMap, refresh, inv, refreshI
     for (const li of lines) { const it = items.find(i => i.id === li.item_id); const pool = poolFor(it, items); if (!pool?.tracked) continue; m[pool.id] = (m[pool.id] || 0) + (Number(li.quantity) || 0); }
     return m;
   };
+  // delta: { poolId: n } — positive takes n off, negative gives n back. Edits, cancels and
+  // deletes always go through (they may leave a pool oversold, same as before).
   const applyPoolDelta = async (locationId, delta) => {
-    for (const [poolId, d] of Object.entries(delta)) {
-      if (!d) continue;
-      const { data: existing } = await supabase.from("inventory").select("*").eq("location_id", locationId).eq("item_id", poolId).maybeSingle();
-      if (existing) await supabase.from("inventory").update({ stock: existing.stock - d }).eq("id", existing.id);
-    }
+    await stockChange(locationId, Object.fromEntries(Object.entries(delta).map(([k, v]) => [k, -v])), true);
   };
 
   const saveEdit = async () => {
@@ -853,7 +863,14 @@ function Orders({ activeLoc, user, orders, orderItemsMap, refresh, inv, refreshI
   };
 
   const deleteOrder = async id => {
-    if (!confirm("Permanently delete this order? This cannot be undone.")) return;
+    if (!confirm("Permanently delete this order? This cannot be undone. Items go back into inventory.")) return;
+    const o = orders.find(x => x.id === id);
+    // Cancelled orders already gave their items back — don't give them back twice
+    if (o && o.status !== "cancelled") {
+      const need = poolNeed(orderItemsMap[id] || []);
+      await applyPoolDelta(o.location_id, Object.fromEntries(Object.entries(need).map(([k, v]) => [k, -v])));
+      await refreshInv();
+    }
     await supabase.from("order_items").delete().eq("order_id", id);
     await supabase.from("orders").delete().eq("id", id);
     await refresh();
@@ -1040,6 +1057,7 @@ function NewOrder({ activeLoc, user, orders, refresh, inv, refreshInv, items, se
   const [notes, setNotes] = useState("");
   const [err, setErr] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const submitLock = useRef(false);   // blocks a double-tap on Place order before the button greys out
   // confirmation screen state
   const [confirming, setConfirming] = useState(false);
   const [placedOrder, setPlacedOrder] = useState(null);
@@ -1086,28 +1104,37 @@ function NewOrder({ activeLoc, user, orders, refresh, inv, refreshInv, items, se
     if (!pickupDate) { setErr("Pickup date required."); return; }
     { const ep = emailProblem(email); if (ep) { setErr(ep); return; } }
     if (lineItems.length === 0) { setErr("Add at least one item."); return; }
+    if (submitLock.current) return;
+    submitLock.current = true;
     setErr(""); setSubmitting(true);
+    // Stock this order took off the counts; given back if the order then fails to save
+    let taken = null;
     try {
-      // ── Stock check against a FRESH read (two iPads can't both take the last one)
-      const { data: freshInv } = await supabase.from("inventory").select("*").eq("location_id", locationId);
-      const stockMap = {}; (freshInv || []).forEach(r => { stockMap[r.item_id] = r.stock; });
+      // ── Stock: check and take off in ONE database step, so two iPads saving at the
+      //    same moment queue up instead of both taking the last one (or losing a deduction)
       const need = {};
       for (const li of lineItems) {
         const it = items.find(i => i.id === li.item_id); const pool = poolFor(it, items);
-        if (!pool?.tracked || !(pool.id in stockMap)) continue;
+        if (!pool?.tracked) continue;
         need[pool.id] = (need[pool.id] || 0) + (Number(li.quantity) || 0);
       }
-      const overs = Object.entries(need).filter(([pid, q]) => q > (stockMap[pid] ?? 0)).map(([pid, q]) => {
-        const pool = items.find(i => i.id === pid);
-        return { item: pool, itemName: pool?.name || pid, requested: q, available: stockMap[pid] ?? 0 };
-      });
+      const takeOff = Object.fromEntries(Object.entries(need).map(([k, v]) => [k, -v]));
+      let overs = [];
       let stockOverride = false;
-      if (overs.length) {
+      let res = await stockChange(locationId, takeOff, false);
+      if (!res.ok) {
+        overs = (res.short || []).map(s => {
+          const pool = items.find(i => i.id === s.item_id);
+          return { item: pool, itemName: pool?.name || s.item_id, requested: s.requested, available: s.available };
+        });
         const list = overs.map(o => `• ${o.itemName}: ordering ${o.requested}, ${o.available > 0 ? `only ${o.available} left` : o.available === 0 ? "sold out" : `already oversold by ${-o.available}`}`).join("\n");
         if (!canOverride) { setErr(`Not enough stock — ask a manager.\n${list}`); setSubmitting(false); return; }
         if (!window.confirm(`Not enough stock:\n${list}\n\nPlace the order anyway? The pool will show as oversold and the store will be emailed.`)) { setSubmitting(false); return; }
+        res = await stockChange(locationId, takeOff, true);
+        if (!res.ok) throw new Error("Stock update failed. Order not placed.");
         stockOverride = true;
       }
+      taken = takeOff;
 
       const orderDate = tod();
       const orderTime = nowT();
@@ -1154,6 +1181,7 @@ function NewOrder({ activeLoc, user, orders, refresh, inv, refreshInv, items, se
 
       const { error: insErr } = await supabase.from("orders").insert(newOrder);
       if (insErr) throw new Error(insErr.message);
+      taken = null;   // order is saved — the stock it took stays taken
       if (refreshCustomers) await refreshCustomers();
 
       const orderItemRows = lineItems.map(li => ({
@@ -1163,12 +1191,6 @@ function NewOrder({ activeLoc, user, orders, refresh, inv, refreshInv, items, se
         note: li.note || null,
       }));
       await supabase.from("order_items").insert(orderItemRows);
-
-      // Deduct from pools. Overrides are allowed to go negative so the count stays honest.
-      for (const [poolId, qty] of Object.entries(need)) {
-        const { data: existing } = await supabase.from("inventory").select("*").eq("location_id", locationId).eq("item_id", poolId).maybeSingle();
-        if (existing) await supabase.from("inventory").update({ stock: existing.stock - qty }).eq("id", existing.id);
-      }
 
       await refreshInv();
       await refresh();
@@ -1187,8 +1209,10 @@ function NewOrder({ activeLoc, user, orders, refresh, inv, refreshInv, items, se
       setConfirming(true);
     } catch (e) {
       console.error(e);
+      // The order didn't save — put back any stock it took
+      if (taken) { try { await stockChange(locationId, Object.fromEntries(Object.entries(taken).map(([k, v]) => [k, -v])), true); await refreshInv(); } catch (e2) { console.error("stock give-back failed", e2); } }
       setErr(e.message || "Something went wrong placing the order.");
-    } finally { setSubmitting(false); }
+    } finally { setSubmitting(false); submitLock.current = false; }
   };
 
   const sendEmail = async (toAddr) => {
