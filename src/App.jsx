@@ -834,7 +834,10 @@ function Orders({ activeLoc, user, orders, orderItemsMap, refresh, inv, refreshI
         notes: editForm.notes,
         location_id: editForm.location_id,
         order_seq: seq,
-        daily_number: seq,
+        // Keep the number the customer was given. It only changes when the order moves to
+        // another store or month (and the clerk confirmed that above). Older orders can have
+        // a told number that differs from order_seq — overwriting it renumbered customers.
+        daily_number: (movedStore || movedMonth) ? seq : detail.daily_number,
       }).eq("id", detail.id);
       if (error) throw new Error(error.message);
       await supabase.from("order_items").delete().eq("order_id", detail.id);
