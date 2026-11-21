@@ -7,19 +7,22 @@ its detail, so the label now uses this inverted version by default.
 The original solid logo is still in src/zebraPrint.js (LOGO_GFA_DARK).
 
 Usage:
-    python3 logo_light_to_zpl.py assets/iavarone-monogram-white-2024.svg [png_out]
+    python3 logo_light_to_zpl.py assets/iavarone-monogram-white-2024.svg [png_out] [grow] [nodots]
+grow   = extra stroke weight in printer dots (0, 0.5, 1). Thin 1-dot strokes
+         print faint/broken on the GK420t, so 0.5+ is recommended.
+nodots = drop the tiny dotted circle (too small to print cleanly at this size).
 Prints a single ^GFA,... line; optionally also writes a 600px PNG of the
 light logo (used by the browser-print backup: public/brand/label-logo-light.png).
 Requires: pip install cairosvg pillow
 """
 import io, re, sys
 import cairosvg
-from PIL import Image, ImageDraw, ImageOps
+from PIL import Image, ImageDraw, ImageFilter, ImageOps
 
 VIEWBOX = 429.5
 CX, CY, R = 225.88, 216.13, 194.73   # outer circle of the monogram, in SVG units
 
-def light_image(svg_path, size):
+def light_image(svg_path, size, grow=0.0, nodots=False):
     s = open(svg_path).read()
     s = re.sub(r'<rect[^>]*/>', '', s).replace('fill: #fff;', 'fill: #000;')
     im = Image.open(io.BytesIO(cairosvg.svg2png(
@@ -32,6 +35,14 @@ def light_image(svg_path, size):
     out = Image.composite(ImageOps.invert(im), Image.new('L', im.size, 255), mask)
     ImageDraw.Draw(out).ellipse((cx - r, cy - r, cx + r, cy + r), outline=0,
                                 width=max(2, round(size * 0.012)))
+    if nodots:   # white-out the ring of small dots (radius ~172-182 SVG units)
+        m = Image.new('L', out.size, 0); d = ImageDraw.Draw(m)
+        d.ellipse((cx - 182 * k, cy - 182 * k, cx + 182 * k, cy + 182 * k), fill=255)
+        d.ellipse((cx - 172 * k, cy - 172 * k, cx + 172 * k, cy + 172 * k), fill=0)
+        out = Image.composite(Image.new('L', out.size, 255), out, m)
+    if grow:     # thicken every black stroke; size/132 px = 1 printer dot
+        px = round(grow * size / 132) | 1
+        out = out.filter(ImageFilter.MinFilter(px))
     return out
 
 def to_gfa(img, dots=132, threshold=170):
@@ -50,6 +61,8 @@ def to_gfa(img, dots=132, threshold=170):
 if __name__ == '__main__':
     if len(sys.argv) < 2:
         print(__doc__, file=sys.stderr); sys.exit(1)
-    print(to_gfa(light_image(sys.argv[1], 132 * 8)))
-    if len(sys.argv) > 2:
-        light_image(sys.argv[1], 600).convert('RGB').save(sys.argv[2])
+    grow = float(sys.argv[3]) if len(sys.argv) > 3 else 0.0
+    nodots = len(sys.argv) > 4 and sys.argv[4] == 'nodots'
+    print(to_gfa(light_image(sys.argv[1], 132 * 8, grow, nodots)))
+    if len(sys.argv) > 2 and sys.argv[2] != '-':
+        light_image(sys.argv[1], 600, grow, nodots).convert('RGB').save(sys.argv[2])
