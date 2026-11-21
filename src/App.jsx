@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { supabase, setToken, getToken, tokenClaims, api } from "./supabase";
-import { findZebraPrinter, printZpl, buildLabels, zplForLabels } from "./zebraPrint";
+import { findZebraPrinter, printZpl, buildLabels, zplForLabels, LABEL_LOGO_STYLE } from "./zebraPrint";
 import { Button, Card, Pill, Chip, Toggle, Field, Input, Select, Textarea, PasswordInput, Banner, Loading, Empty, Modal, Icon, MadeBy, cx } from "./ui";
 import ItemPicker, { poolFor } from "./ItemPicker";
 import { monthOf, ymOf, orderSeq, orderNumberText, qtyText, qtyPrefix, lineName } from "./orderFmt";
@@ -34,6 +34,8 @@ const ymd = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0
 const tod = () => ymd(new Date());
 const nowT = () => new Date().toTimeString().slice(0, 5);
 const LOGO_URL = "/logo.jpg";
+// Logo on labels (browser-print backup); follows LABEL_LOGO_STYLE in zebraPrint.js.
+const LABEL_LOGO_URL = LABEL_LOGO_STYLE === "dark" ? LOGO_URL : "/brand/label-logo-light.png";
 
 // ── Session persistence ──────────────────────────────────────────────────────
 // Login survives reloads / relaunches via localStorage; an app-wide inactivity
@@ -226,7 +228,7 @@ const htmlEsc = (v) => String(v ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", 
 // 4.09 in print head, 0.12 in margins and 0.22 in clear at the bottom.
 // The Windows driver's paper size must also be 4.25 x 2.75 for this to land right.
 function labelHTML(labels) {
-  const logoUrl = window.location.origin + LOGO_URL;
+  const logoUrl = window.location.origin + LABEL_LOGO_URL;
   const labelsHtml = labels.map(p => `
       <div class="label"><div class="inner">
         <div class="top-row">
